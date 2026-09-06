@@ -60,3 +60,5 @@ tmp/
 
 # Local
 session.txt
+# Maintainer notes, kept local by the owner's decision at the first commit (2026-09-06)
+wiki/

@@ -182,7 +182,6 @@ bboxes over an all-land interior window.
 ├── dockerfiles/         Dockerfile.terraserve: MapServer image + the pinned TerraServe binary
 ├── data/                Downloaded fixtures (not in git)
 ├── results/             One directory per run: REPORT.md, JSON, PNGs (not in git)
-├── wiki/                Maintained notes: architecture, measurement method, engines, known issues
 ├── config.yaml          Fixture files and checksums, engine image pins, VPS host
 ├── setup.sh             Download fixtures from VPS
 ├── run_all.sh           Orchestrate all benchmarks

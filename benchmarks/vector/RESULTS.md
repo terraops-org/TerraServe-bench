@@ -103,7 +103,7 @@ this harness, nothing more.
 
 `N=600 WARMUP=300 CONC=16`, the defaults, same box, `results/20260906-084613/` on the
 owner's box, not in the repo (the first complete default-settings run on 0.2.0, on the harness fixed the same day: a
-response only counts when it is a PNG, see the wiki log). Every engine 600/600.
+response only counts when it is a PNG). Every engine 600/600.
 GeoServer in its own container, `-Xmx4096m`, GWC off; MapServer with up to 16 FastCGI
 workers and `GDAL_CACHEMAX=64` each.
 
@@ -120,5 +120,5 @@ holds the least memory after load. Visual parity: the three `sample_cos_<engine>
 of this run are the same tile; TerraServe and GeoServer differ by 0.93 mean RGB over the
 frame; MapServer differs from each by about 6.5 mean RGB over its opaque pixels, with a
 fifth of them differing (its background is transparent where the other two paint white,
-so a full-frame comparison shows the 136/255 trap noted in the wiki's measurement page).
+so a full-frame comparison shows a meaningless 136/255 difference).
 The three tiles look the same to the eye.
