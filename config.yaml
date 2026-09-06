@@ -1,0 +1,57 @@
+# TerraServe Benchmark Configuration
+# Fixture URLs point to a VPS hosting the test data
+
+fixtures:
+  # Served from https://terraserve.io/fixtures/ with a SHA256SUMS file next to them.
+  # setup.sh downloads the ones marked default and verifies every file against that list.
+  cascais_rgb:
+    file: "cascais.cog.deflate.tif"
+    size_bytes: 1001912148
+    sha256: "4b8c8f58b127914fe1033aeb9b8fe6581460128d8038b04c56de799d182db800"
+    description: "Cascais, Portugal RGB COG (DEFLATE, EPSG:3763, with mask). Render and throughput benchmarks."
+    default: true
+
+  cos2023_vector:
+    file: "COS2023v1-S2.gpkg"
+    size_bytes: 1626329088
+    sha256: "136c4148328b1b61e39611bb9077ba5d041938dceb136bf414d6dd1e4d574d0c"
+    description: "COS 2023 land cover, Portugal, 842,413 MultiPolygons, EPSG:3763, layer cos2023v1. Vector benchmark."
+    default: true
+
+  s2_stack:
+    file: "s2_stack.cog.tif"
+    size_bytes: 715320037
+    sha256: "0e24e8f26b3041f7b26641eb630f475ff6c488e9b53da822cecd20147494909d"
+    description: "Sentinel-2 4-band stack, EPSG:32629 (Algarve). NDVI benchmark, not ported yet. FIXTURES=all to fetch."
+    default: false
+
+# Engine versions & image names
+engines:
+  mapserver:
+    image: "camptocamp/mapserver:8.6-gdal3.12"
+    description: "MapServer 8.6.5 (public image, GDAL 3.12, PROJ 9.7)"
+
+  geoserver:
+    image: "docker.osgeo.org/geoserver:2.26.1"
+    description: "GeoServer 2.26.1"
+
+  terraserve:
+    # The image the public repo's CI publishes on a v* tag, pinned by tag AND digest so a
+    # moved tag cannot change what is benchmarked. To bump: pick a release at
+    # https://github.com/terraops-org/TerraServe/releases, docker pull ghcr.io/terraops-org/terraserve:<ver>,
+    # read the digest with `docker image inspect --format '{{index .RepoDigests 0}}'`, update
+    # the three lines below, re-run the benchmarks, record the version in the results docs.
+    # (sustained.py and cos2023_vector_bench.py carry a digest-less fallback string for runs
+    # without this file; they may lag, this line is the one that counts.)
+    image: "ghcr.io/terraops-org/terraserve:0.2.0@sha256:a482e6cfb376edcccb9c1589c1cd3a92e94dfd0dbf53fc71a9e6fd8e29a5ac16"
+    version: "0.2.0"
+    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.2.0"
+    description: "TerraServe 0.2.0 (Debian trixie image). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
+
+# Benchmark settings are NOT read from this file. Each run.sh takes environment variables
+# (render: W H MEM_RUNS; throughput: N CONC; vector: N WARMUP CONC ENGINES), see the README.
+
+# Where setup.sh downloads from: https://<host><path>/<file>. Override with VPS_HOST / VPS_PATH.
+vps:
+  host: "terraserve.io"
+  path: "/fixtures"

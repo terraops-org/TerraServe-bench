@@ -1,0 +1,62 @@
+# Downloaded fixtures (not in git)
+data/*
+!data/.gitkeep
+*.tif
+*.tiff
+*.gpkg
+*.fgb
+*.vrt
+# The NDVI VRTs under config/ are inputs, not fixtures.
+!config/mapfiles/*.vrt
+
+# The terraserve binary the render bench needs, symlinked or copied in by the user
+target/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python
+venv/
+env/
+.Python
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Benchmark outputs
+results/*
+!results/.gitkeep
+*.png
+*.csv
+*.json
+# TerraServe styles are JSON and are REQUIRED by the render and throughput benchmarks.
+# Without this negation the *.json rule above silently drops them from every commit.
+!config/styles/*.json
+bench_*.out
+*.log
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+.venv/
+CLAUDE.md
+
+# Temporary
+tmp/
+.tmp/
+*.tmp
+
+# Local
+session.txt

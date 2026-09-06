@@ -1,0 +1,4 @@
+# The one hard dependency: GeoServer REST provisioning and the render GetMap benchmark.
+requests>=2.26.0
+# Throughput memory-over-time plot; the benchmark runs without it and says "(no plot: ...)".
+Pillow>=9.0.0

@@ -1,0 +1,42 @@
+MAP
+  NAME "cascais_wms"
+  SIZE 800 536
+  EXTENT -116201.25 -108717.25 -109034.0 -103918.25
+  IMAGETYPE "png"
+  PROJECTION
+    "init=epsg:3763"
+  END
+
+  WEB
+    METADATA
+      "wms_title"          "TerraServe bench"
+      "wms_onlineresource" "http://localhost/?"
+      "wms_srs"            "EPSG:3763 EPSG:3857 EPSG:4326"
+      "wms_enable_request" "*"
+    END
+  END
+
+  OUTPUTFORMAT
+    NAME "png"
+    DRIVER "AGG/PNG"
+    MIMETYPE "image/png"
+    IMAGEMODE RGBA
+    TRANSPARENT ON
+    EXTENSION "png"
+  END
+
+  LAYER
+    NAME "cascais"
+    TYPE RASTER
+    STATUS ON
+    DATA "/data/cog.tif"
+    PROCESSING "RESAMPLE=NEAREST"
+    PROJECTION
+      "init=epsg:3763"
+    END
+    METADATA
+      "wms_title" "cascais"
+      "wms_srs"   "EPSG:3763 EPSG:3857 EPSG:4326"
+    END
+  END
+END

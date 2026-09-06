@@ -1,0 +1,690 @@
+MAP
+  NAME "cos2023"
+  SIZE 256 256
+  MAXSIZE 4096
+  EXTENT -119191.408 -300404.804 162129.081 276083.767
+  UNITS METERS
+  IMAGETYPE png
+  PROJECTION
+    "init=epsg:3763"
+  END
+  OUTPUTFORMAT
+    NAME "png"
+    DRIVER "AGG/PNG"
+    IMAGEMODE RGBA
+    TRANSPARENT ON
+    FORMATOPTION "GAMMA=0.75"
+  END
+  WEB
+    METADATA
+      "wms_title" "cos2023"
+      "wms_srs" "EPSG:3763 EPSG:3857 EPSG:4326"
+      "wms_enable_request" "*"
+      "wms_onlineresource" "http://localhost/?map=/etc/mapserver/cos2023.map&"
+    END
+  END
+  LAYER
+    NAME "cos2023"
+    TYPE POLYGON
+    STATUS ON
+    CONNECTIONTYPE OGR
+    CONNECTION "/data/COS2023v1-S2.gpkg"
+    DATA "cos2023v1"
+    PROJECTION
+      "init=epsg:3763"
+    END
+    CLASSITEM "COS23_n4_C"
+    METADATA
+      "wms_title" "cos2023"
+      "wms_srs" "EPSG:3763 EPSG:3857 EPSG:4326"
+    END
+    CLASS
+      EXPRESSION "1.1.1.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.1.1.2"
+      STYLE
+        COLOR "#e60014"
+      END
+    END
+    CLASS
+      EXPRESSION "1.1.2.1"
+      STYLE
+        COLOR "#ff0000"
+      END
+    END
+    CLASS
+      EXPRESSION "1.1.2.2"
+      STYLE
+        COLOR "#ff0032"
+      END
+    END
+    CLASS
+      EXPRESSION "1.1.3.1"
+      STYLE
+        COLOR "#ff0050"
+      END
+    END
+    CLASS
+      EXPRESSION "1.1.3.2"
+      STYLE
+        COLOR "#ff006e"
+      END
+    END
+    CLASS
+      EXPRESSION "1.2.1.1"
+      STYLE
+        COLOR "#cc4df2"
+      END
+    END
+    CLASS
+      EXPRESSION "1.2.2.1"
+      STYLE
+        COLOR "#cc4dd2"
+      END
+    END
+    CLASS
+      EXPRESSION "1.2.3.1"
+      STYLE
+        COLOR "#cc4da0"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.1.1"
+      STYLE
+        COLOR "#cc4d78"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.1.2"
+      STYLE
+        COLOR "#cc4d5a"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.2.1"
+      STYLE
+        COLOR "#cc4d46"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.2.2"
+      STYLE
+        COLOR "#cc4d28"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.1.1"
+      STYLE
+        COLOR "#cc0000"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.1.2"
+      STYLE
+        COLOR "#9a0000"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.2.1"
+      STYLE
+        COLOR "#e6cccc"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.2.2"
+      STYLE
+        COLOR "#e6b4cc"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.2.3"
+      STYLE
+        COLOR "#e696cc"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.3.1"
+      STYLE
+        COLOR "#e6cce6"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.3.2"
+      STYLE
+        COLOR "#d2cce6"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.1.1"
+      STYLE
+        COLOR "#a600cc"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.1.2"
+      STYLE
+        COLOR "#6e00cc"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.2.1"
+      STYLE
+        COLOR "#a64d00"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.2.2"
+      STYLE
+        COLOR "#a67400"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.3.1"
+      STYLE
+        COLOR "#ff4dff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.6.1.1"
+      STYLE
+        COLOR "#ffe6ff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.6.1.2"
+      STYLE
+        COLOR "#ffd2ff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.6.2.1"
+      STYLE
+        COLOR "#ffb4ff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.6.2.2"
+      STYLE
+        COLOR "#ff8cff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.6.3.1"
+      STYLE
+        COLOR "#e664ff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.6.4.1"
+      STYLE
+        COLOR "#be64ff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.6.5.1"
+      STYLE
+        COLOR "#a064ff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.7.1.1"
+      STYLE
+        COLOR "#ffa6ff"
+      END
+    END
+    CLASS
+      EXPRESSION "2.1.1.1"
+      STYLE
+        COLOR "#ffff00"
+      END
+    END
+    CLASS
+      EXPRESSION "2.1.1.2"
+      STYLE
+        COLOR "#e6e600"
+      END
+    END
+    CLASS
+      EXPRESSION "2.2.1.1"
+      STYLE
+        COLOR "#e68000"
+      END
+    END
+    CLASS
+      EXPRESSION "2.2.2.1"
+      STYLE
+        COLOR "#f2a64d"
+      END
+    END
+    CLASS
+      EXPRESSION "2.2.3.1"
+      STYLE
+        COLOR "#e6a600"
+      END
+    END
+    CLASS
+      EXPRESSION "2.3.1.1"
+      STYLE
+        COLOR "#ffe6a6"
+      END
+    END
+    CLASS
+      EXPRESSION "2.3.1.2"
+      STYLE
+        COLOR "#fff0a6"
+      END
+    END
+    CLASS
+      EXPRESSION "2.3.1.3"
+      STYLE
+        COLOR "#fffaa6"
+      END
+    END
+    CLASS
+      EXPRESSION "2.3.2.1"
+      STYLE
+        COLOR "#ffe64d"
+      END
+    END
+    CLASS
+      EXPRESSION "2.3.3.1"
+      STYLE
+        COLOR "#e6cc4d"
+      END
+    END
+    CLASS
+      EXPRESSION "2.4.1.1"
+      STYLE
+        COLOR "#e6cc82"
+      END
+    END
+    CLASS
+      EXPRESSION "3.1.1.1"
+      STYLE
+        COLOR "#ffff4d"
+      END
+    END
+    CLASS
+      EXPRESSION "3.1.2.1"
+      STYLE
+        COLOR "#ccf24d"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.1.1"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.1.2"
+      STYLE
+        COLOR "#dccca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.1.3"
+      STYLE
+        COLOR "#c8cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.1.4"
+      STYLE
+        COLOR "#b4cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.1.5"
+      STYLE
+        COLOR "#a0d7a6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.1.6"
+      STYLE
+        COLOR "#a0e6a6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.1.7"
+      STYLE
+        COLOR "#a0ffa6"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.1"
+      STYLE
+        COLOR "#80ff00"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.2"
+      STYLE
+        COLOR "#80eb00"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.3"
+      STYLE
+        COLOR "#80d700"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.4"
+      STYLE
+        COLOR "#80c800"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.5"
+      STYLE
+        COLOR "#80b400"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.6"
+      STYLE
+        COLOR "#80a000"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.7"
+      STYLE
+        COLOR "#808c00"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.2.1"
+      STYLE
+        COLOR "#00a600"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.2.2"
+      STYLE
+        COLOR "#008c00"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.2.3"
+      STYLE
+        COLOR "#007800"
+      END
+    END
+    CLASS
+      EXPRESSION "6.1.1.1"
+      STYLE
+        COLOR "#a6ff80"
+      END
+    END
+    CLASS
+      EXPRESSION "7.1.1.1"
+      STYLE
+        COLOR "#e6e6e6"
+      END
+    END
+    CLASS
+      EXPRESSION "7.1.1.2"
+      STYLE
+        COLOR "#e6e6d7"
+      END
+    END
+    CLASS
+      EXPRESSION "7.1.2.1"
+      STYLE
+        COLOR "#cccccc"
+      END
+    END
+    CLASS
+      EXPRESSION "7.1.3.1"
+      STYLE
+        COLOR "#ccffcc"
+      END
+    END
+    CLASS
+      EXPRESSION "8.1.1.1"
+      STYLE
+        COLOR "#a6a6ff"
+      END
+    END
+    CLASS
+      EXPRESSION "8.1.2.1"
+      STYLE
+        COLOR "#ccccff"
+      END
+    END
+    CLASS
+      EXPRESSION "8.1.2.2"
+      STYLE
+        COLOR "#a6a6e6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.1.1.1"
+      STYLE
+        COLOR "#00ccf2"
+      END
+    END
+    CLASS
+      EXPRESSION "9.1.1.2"
+      STYLE
+        COLOR "#00f2f2"
+      END
+    END
+    CLASS
+      EXPRESSION "9.1.2.1"
+      STYLE
+        COLOR "#80f2e6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.1.2.2"
+      STYLE
+        COLOR "#80dee6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.1.2.3"
+      STYLE
+        COLOR "#80c8e6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.1.2.4"
+      STYLE
+        COLOR "#80b4e6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.1.2.5"
+      STYLE
+        COLOR "#80a0e6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.2.1.1"
+      STYLE
+        COLOR "#e6e6ff"
+      END
+    END
+    CLASS
+      EXPRESSION "9.3.1.1"
+      STYLE
+        COLOR "#e6ffff"
+      END
+    END
+    CLASS
+      EXPRESSION "9.3.2.1"
+      STYLE
+        COLOR "#00ffa6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.3.3.1"
+      STYLE
+        COLOR "#a6ffe6"
+      END
+    END
+    CLASS
+      EXPRESSION "9.3.4.1"
+      STYLE
+        COLOR "#e6f2ff"
+      END
+    END
+    CLASS
+      EXPRESSION "1.2.1.2"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.2.3"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.2.4"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.3.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.3.4.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.1.3"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.4.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.4.2"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.5.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.5.2"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.4.6.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.2.3"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.3.2"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.5.4.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.7.1.2"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "1.8.1.1"
+      STYLE
+        COLOR "#e6004d"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.2.1"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.1.2.2"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.2.1.1"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.2.1.2"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.2.1.3"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.2.1.4"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.2.2.1"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "4.2.2.2"
+      STYLE
+        COLOR "#f2cca6"
+      END
+    END
+    CLASS
+      EXPRESSION "5.1.1.8"
+      STYLE
+        COLOR "#80ff00"
+      END
+    END
+  END
+END

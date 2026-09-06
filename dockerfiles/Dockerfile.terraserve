@@ -1,0 +1,14 @@
+# Bench image for the two CLI engines: MapServer's own public image with the pinned
+# TerraServe binary copied in, so map2img and terraserve run on the SAME Ubuntu, PROJ, libc
+# and allocator (Ubuntu 24.04, PROJ 9.7, GDAL 3.12 on the 8.6-gdal3.12 tag). That shared
+# runtime is what makes the two numbers comparable; DO NOT split this into two images.
+#
+# Both sources are public. TS_IMAGE is what the public repo's CI publishes on a release tag,
+# pinned by tag and digest in config.yaml; the run.sh scripts pass both args in.
+
+
+ARG MS_IMAGE
+ARG TS_IMAGE
+FROM ${TS_IMAGE} AS terraserve
+FROM ${MS_IMAGE}
+COPY --from=terraserve /usr/local/bin/terraserve /usr/local/bin/terraserve

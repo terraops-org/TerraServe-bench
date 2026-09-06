@@ -1,0 +1,65 @@
+# Only the render benchmark uses this file, for its GeoServer. MapServer and TerraServe
+# run in containers the benchmark scripts start themselves, from the pins in config.yaml.
+services:
+  # PostGIS: GeoServer's depends_on only; no benchmark reads it.
+  postgis:
+    image: postgis/postgis:latest
+    environment:
+      POSTGRES_USER: geoserver
+      POSTGRES_PASSWORD: geoserver
+      POSTGRES_DB: geoserverdb
+    volumes:
+      - postgis_data:/var/lib/postgresql/data
+    # No host port: only GeoServer talks to it, over the compose network. Publishing 5432
+    # made `docker compose up` fail on any box that already runs a Postgres.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geoserver"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "bench=backend"
+
+  # GeoServer for raster and vector rendering
+  geoserver:
+    image: docker.osgeo.org/geoserver:2.26.1
+    depends_on:
+      postgis:
+        condition: service_healthy
+    environment:
+      GEOSERVER_ADMIN_USER: admin
+      GEOSERVER_ADMIN_PASSWORD: geoserver
+      GEOSERVER_JAVA_OPTS: "-Xms1g -Xmx4g"
+    ports:
+      - "8080:8080"
+    volumes:
+      - geoserver_data:/opt/geoserver/data_dir
+      - ./data:/data/cogs:ro
+      - ./config:/config:ro
+    labels:
+      - "bench=geoserver"
+
+  # TerraServe (if built locally)
+  # Note: requires host-built binary mounted from ./target/release/terraserve
+  # Uncomment and configure based on your build setup
+  # terraserve:
+  #   build:
+  #     context: .
+  #     dockerfile: dockerfiles/Dockerfile.terraserve
+  #   ports:
+  #     - "8001:8080"
+  #   volumes:
+  #     - ./data:/data:ro
+  #     - ./config:/config:ro
+  #   environment:
+  #     - TERRASERVE_PORT=8080
+  #   labels:
+  #     - "bench=terraserve"
+
+volumes:
+  postgis_data:
+  geoserver_data:
+
+networks:
+  default:
+    name: terraserve-bench

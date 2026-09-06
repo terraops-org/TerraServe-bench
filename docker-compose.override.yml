@@ -1,0 +1,7 @@
+# Local-only override (gitignored). Points GeoServer at the COGs living in the
+# to.terraserve-private checkout, because ./data holds symlinks here and Docker
+# does not follow a host symlink inside a bind mount.
+services:
+  geoserver:
+    volumes:
+      - /home/mende012/git/to.terraserve-private/cogs:/data/cogs:ro
