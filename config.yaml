@@ -43,10 +43,10 @@ engines:
     # the three lines below, re-run the benchmarks, record the version in the results docs.
     # (sustained.py and cos2023_vector_bench.py carry a digest-less fallback string for runs
     # without this file; they may lag, this line is the one that counts.)
-    image: "ghcr.io/terraops-org/terraserve:0.2.0@sha256:a482e6cfb376edcccb9c1589c1cd3a92e94dfd0dbf53fc71a9e6fd8e29a5ac16"
-    version: "0.2.0"
-    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.2.0"
-    description: "TerraServe 0.2.0 (Debian trixie image). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
+    image: "ghcr.io/terraops-org/terraserve:0.3.0@sha256:767312b47cc5a362b215fdadad7c2d0e44868c724b9d9a63051509f22c9b66c3"
+    version: "0.3.0"
+    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.0"
+    description: "TerraServe 0.3.0 (vellero-cpu render engine). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
 
 # Benchmark settings are NOT read from this file. Each run.sh takes environment variables
 # (render: W H MEM_RUNS; throughput: N CONC; vector: N WARMUP CONC ENGINES), see the README.
