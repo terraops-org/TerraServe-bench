@@ -13,7 +13,8 @@ All fixture files are downloaded from the project VPS ([terraserve.io/fixtures](
 - Docker compose
 - Python 3.9+ with `requests` (GeoServer REST scripts) and Pillow (throughput plot): `pip install -r requirements.txt`
 - Bash 4.4+, `curl`
-- Benchmarks pull the pinned public release image `ghcr.io/terraops-org/terraserve:0.2.0` (see `config.yaml`), no need for rustc
+- Benchmarks pull the pinned public release image named in `config.yaml` (currently
+  `ghcr.io/terraops-org/terraserve:0.3.5`), no need for rustc
 
 ### TerraServe version under test
 
@@ -60,6 +61,13 @@ docker compose up -d geoserver postgis
 # Run render benchmarks (includes GeoServer)
 cd benchmarks/render && ./run.sh
 ```
+
+Since 2026-09-20 the render benchmark starts that stack itself when GeoServer is not already
+running, so `./run_all.sh` alone produces a complete three-engine report. `GS_AUTOSTART=0`
+keeps the old behaviour. If GeoServer still never answers, the report says `not reachable`
+for it rather than leaving a cell that reads like "this benchmark was not part of the run":
+the throughput and vector benchmarks run their own GeoServer container, so this one was the
+only place where an unattended run could quietly lose an engine.
 
 `run.sh` waits up to three minutes for GeoServer to answer (a new data volume takes a
 minute or two to initialise) and creates the workspace, store and layer itself over REST.

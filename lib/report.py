@@ -62,7 +62,10 @@ def _render(d):
                     e["metrics"].update(line)
     except OSError:
         pass
-    return {"date": meta.get("date"), "params": meta.get("params", {}), "engines": engines}
+    # `unreachable` is written by the render runner when an engine never answered, so the
+    # report can say that rather than leave a cell that reads like "not part of this run".
+    return {"date": meta.get("date"), "params": meta.get("params", {}), "engines": engines,
+            "unreachable": meta.get("unreachable", [])}
 
 
 def load(d):
@@ -164,10 +167,11 @@ HOW_TO_READ = """## How to read this
   completeness and kept out of the summary.
 - **Which TerraServe:** the version column says what ran. A LOCAL BUILD marker means a
   developer binary was substituted for the pinned release.
-- **Empty cells mean three different things.** `not run`: that benchmark was not part of
+- **Empty cells mean several different things.** `not run`: that benchmark was not part of
   this run. `FAILED`: the engine started but produced no PNG (the run's terminal output says
-  why). `not selected`: left out with `ENGINES=`. `not in this benchmark`: the benchmark
-  has no engine for it.
+  why). `not reachable`: the engine never answered, so it was skipped (GeoServer, when the
+  render benchmark could not start or reach it). `not selected`: left out with `ENGINES=`.
+  `not in this benchmark`: the benchmark has no engine for it.
 - **One run on one machine.** Re-run before quoting; the box drifts a few percent within a
   session. Use `lib/report.py --compare` for two runs.
 """
@@ -191,6 +195,8 @@ def _absent_cell(run, bench, fam):
         return "FAILED"
     if any(_key_family(k) == fam for k in ((run.get(bench) or {}).get("skipped") or [])):
         return "not selected"
+    if fam in ((run.get(bench) or {}).get("unreachable") or []):
+        return "not reachable"
     return "not in this benchmark"
 
 
@@ -211,6 +217,8 @@ def _summary_cells(run, fam):
         if e.get("local_build"):
             cell += " (LOCAL BUILD)"
         render_cell = cell
+    elif fam in ((run.get("render") or {}).get("unreachable") or []):
+        render_cell = "not reachable"
     else:
         render_cell = "not run"
     # throughput
@@ -281,8 +289,10 @@ def render_markdown(run):
             name = version_label(e.get("family", label), e.get("version"), e.get("image"))
             if e.get("local_build"):
                 name += " (LOCAL BUILD)"
-            if m.get("median_ms") is None:          # listed in the meta but never measured (GeoServer skipped)
-                out.append(f"| {name} | {shape} | not run | | | | | |")
+            if m.get("median_ms") is None:          # listed in the meta but never measured
+                why = ("not reachable" if e.get("family") in (r.get("unreachable") or [])
+                       else "not run")
+                out.append(f"| {name} | {shape} | {why} | | | | | |")
                 continue
             out.append(f"| {name} | {shape} | {fmt(m.get('best_ms'), ' ms')} | {fmt(m.get('median_ms'), ' ms')} | "
                        f"{fmt(m.get('max_ms'), ' ms')} | {fmt(m.get('base_mb'), ' MB')} | {fmt(mem_per_render(m), ' MB')} | "

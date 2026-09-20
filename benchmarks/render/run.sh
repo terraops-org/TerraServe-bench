@@ -39,6 +39,16 @@ RESULTS_DIR="$(cd "$RESULTS_DIR" && pwd)"
 ln -sfn "$RESULTS_DIR" "${REPO_DIR}/results/latest"
 [[ -f "${RESULTS_DIR}/host.json" ]] || python3 "${LIB_DIR}/report.py" --host "$RESULTS_DIR"
 
+# Written into render.meta.json when GeoServer never answered, so the report can say
+# "not reachable" instead of an empty cell that reads like "this benchmark did not run".
+MARK_UNREACHABLE='
+import json, os
+p = os.path.join(os.environ["RESULTS_DIR"], "render.meta.json")
+m = json.load(open(p))
+m["unreachable"] = sorted(set(m.get("unreachable", []) + ["geoserver"]))
+json.dump(m, open(p, "w"), indent=2)
+'
+
 finish() {
     python3 "${LIB_DIR}/report.py" "$RESULTS_DIR" --write --quiet || true
     echo ""
@@ -176,6 +186,17 @@ GS_TIMEOUT=30
 # give up after a few seconds and skip.
 echo -n "    Checking GeoServer at ${GS_URL} "
 gs_up=0
+if [[ -z "$(cd "$REPO_DIR" && docker compose ps -q geoserver 2>/dev/null)" && "${GS_AUTOSTART:-1}" != "0" ]]; then
+    # Start it ourselves. The throughput and vector benchmarks run their own GeoServer
+    # container, so only this one needed the stack up beforehand -- which meant an
+    # unattended `run_all.sh` produced a report with GeoServer missing from the render table
+    # and nothing failing anywhere. Set GS_AUTOSTART=0 to keep the old behaviour.
+    echo ""
+    echo "    GeoServer is not running; starting it (docker compose up -d geoserver postgis)"
+    (cd "$REPO_DIR" && docker compose up -d geoserver postgis >/dev/null 2>&1) \
+        || echo "    [WARN] could not start the GeoServer stack"
+    echo -n "    Checking GeoServer at ${GS_URL} "
+fi
 if [[ -n "$(cd "$REPO_DIR" && docker compose ps -q geoserver 2>/dev/null)" ]]; then
     tries=60; pause=3        # up to three minutes for a booting container
 else
@@ -193,7 +214,11 @@ done
 
 if [[ $gs_up -eq 0 ]]; then
     echo " not reachable"
-    echo "    [SKIP] Start it with: docker compose up -d geoserver postgis"
+    echo "    [SKIP] GeoServer did not answer. Start it by hand with:"
+    echo "           docker compose up -d geoserver postgis"
+    # Record WHY the row is missing, or the report prints the same empty cell it prints for a
+    # benchmark nobody asked to run, and a reader cannot tell the two apart.
+    RESULTS_DIR="$RESULTS_DIR" python3 -c "$MARK_UNREACHABLE"
     finish
     exit 0
 fi
