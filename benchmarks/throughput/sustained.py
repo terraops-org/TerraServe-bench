@@ -218,10 +218,12 @@ def fetch(u):
 
 
 def one(target, i):
+    """Size of the PNG answer in bytes, 0 when the answer is not a PNG."""
     try:
-        return is_png(fetch(url(target, i)))
+        data = fetch(url(target, i))
+        return len(data) if is_png(data) else 0
     except Exception:
-        return False
+        return 0
 
 
 _LOAD = None
@@ -244,7 +246,7 @@ def load(target, amount, first=0):
     global _LOAD
     _LOAD = (target, amount, time.time() + amount, first)
     with mp.get_context("fork").Pool(CONC) as pool:
-        return [ok for rs in pool.map(client, range(CONC)) for ok in rs]
+        return [size for rs in pool.map(client, range(CONC)) for size in rs]
 
 
 def run_server(name, cid, target):
@@ -267,7 +269,7 @@ def run_server(name, cid, target):
     s.start()
     t0 = time.time()
     res = load(target, N or DURATION, first=MEASURED)
-    ok, n = sum(res), len(res)
+    ok, n, nbytes = sum(1 for size in res if size), len(res), sum(res)
     dur = time.time() - t0
     time.sleep(2)  # settle: does it give memory back?
     settle = cg_anon(cid)
@@ -279,7 +281,7 @@ def run_server(name, cid, target):
         return None
     if ok < n:
         print(f"{name}: WARNING only {ok}/{n} responses were PNGs")
-    return dict(name=name, baseline=baseline, peak=peak, settle=settle, ok=ok, n=n, dur=dur, series=series)
+    return dict(name=name, baseline=baseline, peak=peak, settle=settle, ok=ok, n=n, nbytes=nbytes, dur=dur, series=series)
 
 
 def mb(x):
@@ -427,6 +429,7 @@ for r in results:
     e = {"key": key, "label": r["name"], "family": fam, "shape": "warm-http",
          "version": VERSION[fam], "image": IMAGE[fam],
          "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": r["n"], "dur_s": round(r["dur"], 1),
+                     "avg_kb": round(r["nbytes"] / r["ok"] / 1024, 1),
                      "baseline_mb": round(mb(r["baseline"]), 1), "peak_mb": round(mb(r["peak"]), 1),
                      "settle_mb": round(mb(r["settle"]), 1)}}
     if variant:

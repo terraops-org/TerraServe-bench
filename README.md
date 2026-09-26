@@ -137,6 +137,8 @@ Long-running servers under load with varying bboxes (simulates panning).
 **Metrics:**
 - Memory over time (baseline -> peak -> settle)
 - Throughput (req/s)
+- Average PNG size: engines compress with different effort, so the same image can cost
+  a different number of bytes on the wire
 - Tail latency
 
 **Configuration:**
@@ -167,7 +169,7 @@ response cache on, listed but kept out of the summary), `mapserver` (Apache + mo
 cells over an all-land interior window, each request shifted so none repeats.
 
 **Metrics:**
-- req/s, p50 and p95 latency, ok/N (a response only counts when it is a PNG)
+- req/s, average PNG size, p50 and p95 latency, ok/N (a response only counts when it is a PNG)
 - cgroup `anon` memory: base, peak under load, settle
 - `sample_cos_<engine>.png` per engine for a visual parity check
 

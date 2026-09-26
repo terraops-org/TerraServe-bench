@@ -327,13 +327,13 @@ def render_markdown(run):
         p = t.get("params", {})
         out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, {p.get('size', '?')}x{p.get('size', '?')}, "
                    f"{bbox_text(p)}.")
-        out += ["", "| engine | req/s | ok/N | baseline | peak | settle |", "|---|---|---|---|---|---|"]
+        out += ["", "| engine | req/s | avg PNG | ok/N | baseline | peak | settle |", "|---|---|---|---|---|---|---|"]
         for e in t.get("engines", []):
             m = e.get("metrics", {})
-            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {m.get('ok', '?')}/{m.get('n', '?')} | "
+            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {fmt(m.get('avg_kb'), ' KB')} | {m.get('ok', '?')}/{m.get('n', '?')} | "
                        f"{fmt(m.get('baseline_mb'), ' MB')} | {fmt(m.get('peak_mb'), ' MB')} | {fmt(m.get('settle_mb'), ' MB')} |")
         for k in _failed_keys(run, "throughput"):
-            out.append(f"| {k} | FAILED | | | | |")
+            out.append(f"| {k} | FAILED | | | | | |")
         gs = by_family(t.get("engines"), "geoserver")
         if gs and gs[0].get("jvm_opts"):
             out += ["", f"GeoServer JVM: `{gs[0]['jvm_opts']}`, GWC off, own container."]
@@ -349,16 +349,16 @@ def render_markdown(run):
         p = v.get("params", {})
         out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, "
                    f"{p.get('size', '?')}x{p.get('size', '?')}, {bbox_text(p)}.")
-        out += ["", "| engine | req/s | ok/N | p50 | p95 | base | peak | settle | note |", "|---|---|---|---|---|---|---|---|---|"]
+        out += ["", "| engine | req/s | avg PNG | ok/N | p50 | p95 | base | peak | settle | note |", "|---|---|---|---|---|---|---|---|---|---|"]
         for e in v.get("engines", []):
             m = e.get("metrics", {})
             note = ("" if not e.get("cache") else
                     "response cache on, no request repeats" if p.get("unique_requests") else "cache-hit rate, not a render rate")
-            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {m.get('ok', '?')}/{m.get('n', '?')} | "
+            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {fmt(m.get('avg_kb'), ' KB')} | {m.get('ok', '?')}/{m.get('n', '?')} | "
                        f"{fmt(m.get('p50_ms'), ' ms', 0)} | {fmt(m.get('p95_ms'), ' ms', 0)} | {fmt(m.get('base_mb'), ' MB', 0)} | "
                        f"{fmt(m.get('peak_mb'), ' MB', 0)} | {fmt(m.get('settle_mb'), ' MB', 0)} | {note} |")
         for k in _failed_keys(run, "vector"):
-            out.append(f"| {k} | FAILED | | | | | | | |")
+            out.append(f"| {k} | FAILED | | | | | | | | |")
     else:
         out.append("not run")
     out.append("")

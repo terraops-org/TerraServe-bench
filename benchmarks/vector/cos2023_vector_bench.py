@@ -259,10 +259,11 @@ def fetch(u):
 def one(engine, i):
     t = time.time()
     try:
-        ok = is_png(fetch(url(engine, i)))
+        data = fetch(url(engine, i))
+        size = len(data) if is_png(data) else 0  # 0: not a PNG
     except Exception:
-        ok = False
-    return ok, (time.time() - t) * 1000.0
+        size = 0
+    return size, (time.time() - t) * 1000.0
 
 
 _LOAD = None
@@ -286,7 +287,7 @@ def load(engine, amount, first=0):
     _LOAD = (engine, amount, time.time() + amount, first)
     with mp.get_context("fork").Pool(CONC) as pool:
         res = [r for rs in pool.map(client, range(CONC)) for r in rs]
-    return sum(ok for ok, _ in res), [ms for _, ms in res]
+    return sum(1 for size, _ in res if size), [ms for _, ms in res], sum(size for size, _ in res)
 
 
 def pct(vals, p):
@@ -337,7 +338,7 @@ def run_engine(engine):
         s = threading.Thread(target=sampler)
         s.start()
         t0 = time.time()
-        ok, lat = load(engine, N or DURATION, first=MEASURED)
+        ok, lat, nbytes = load(engine, N or DURATION, first=MEASURED)
         dur = time.time() - t0
         time.sleep(2)
         settle = cg_anon(cid)
@@ -353,7 +354,7 @@ def run_engine(engine):
             return None
         if ok < len(lat):
             print(f"  {engine.label}: WARNING only {ok}/{len(lat)} responses were PNGs")
-        return dict(engine=engine, ok=ok, dur=dur, lat=lat, baseline=baseline,
+        return dict(engine=engine, ok=ok, dur=dur, lat=lat, nbytes=nbytes, baseline=baseline,
                     peak=max(series, default=0), settle=settle, version=version)
     finally:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
@@ -382,7 +383,7 @@ def write_results(results, failed=(), skipped=()):
                "mem_note": e.mem_note,
                "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": len(r["lat"]), "dur_s": round(r["dur"], 1),
                            "p50_ms": round(pct(r["lat"], 50)), "p95_ms": round(pct(r["lat"], 95)),
-                           "p99_ms": round(pct(r["lat"], 99)),
+                           "p99_ms": round(pct(r["lat"], 99)), "avg_kb": round(r["nbytes"] / r["ok"] / 1024, 1),
                            "base_mb": round(mb(r["baseline"])), "peak_mb": round(mb(r["peak"])),
                            "settle_mb": round(mb(r["settle"]))}}
         if e.key in VARIANT:

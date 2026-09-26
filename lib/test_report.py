@@ -178,6 +178,16 @@ class Markdown(unittest.TestCase):
             self.assertIn("response cache on, no request repeats", md)
             self.assertIn("600 distinct bboxes", md)      # throughput run from before, cycled the grid
 
+    def test_average_png_size_is_shown(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            vec = json.load(open(os.path.join(d, "vector.json")))
+            vec["engines"][0]["metrics"]["avg_kb"] = 126.0
+            write(d, "vector.json", vec)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("| TerraServe-nocache | 154.3 | 126.0 KB | 100/100 |", md)
+            self.assertIn("| MapServer | 93.9 | ? | 100/100 |", md)   # older run, no size recorded
+
     def test_engine_left_out_with_engines_says_not_selected(self):
         with tempfile.TemporaryDirectory() as d:
             make_run(d)
