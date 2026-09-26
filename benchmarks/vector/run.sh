@@ -15,8 +15,9 @@ LIB_DIR="${REPO_DIR}/lib"
 GPKG_DIR="${GPKG_DIR:-${REPO_DIR}/data}"
 GPKG="${GPKG_DIR}/COS2023v1-S2.gpkg"
 
-N=${N:-600}
-WARMUP=${WARMUP:-300}
+DURATION=${DURATION:-120}   # measured seconds per engine
+WARMUP=${WARMUP:-30}        # discarded seconds per engine (requests when N is set)
+# N=<requests> measures a fixed request count instead of DURATION
 CONC=${CONC:-16}
 ENGINES=${ENGINES:-ts-nocache,ts-wmscache,mapserver,geoserver}
 # Engine images come from config.yaml (one place to bump a version); env overrides win.
@@ -59,14 +60,14 @@ echo "TerraServe: $(docker run --rm "$TS_IMAGE" --version) from ${TS_IMAGE}"
 echo "MapServer:  ${MS_IMAGE}"
 echo "GeoServer:  ${GS_IMAGE}"
 echo "Engines:    $ENGINES"
-echo "Load:       N=$N warmup=$WARMUP conc=$CONC"
+echo "Load:       ${DURATION} s after ${WARMUP} s warm-up, conc=$CONC"
 echo ""
 
 echo "Cross-engine WMS GetMap (TerraServe vs MapServer vs GeoServer)"
 # A failed engine exits non-zero. Still write the report (it marks the engine FAILED),
 # then propagate the failure so run_all.sh shows FAIL rather than a clean PASS.
 rc=0
-GPKG_DIR="$GPKG_DIR" N="$N" WARMUP="$WARMUP" CONC="$CONC" ENGINES="$ENGINES" \
+GPKG_DIR="$GPKG_DIR" DURATION="$DURATION" N="${N:-}" WARMUP="$WARMUP" CONC="$CONC" ENGINES="$ENGINES" \
     TS_IMAGE="$TS_IMAGE" MS_IMAGE="$MS_IMAGE" GS_IMAGE="$GS_IMAGE" RESULTS_DIR="$RESULTS_DIR" \
     python3 "${BENCH_DIR}/cos2023_vector_bench.py" || rc=$?
 

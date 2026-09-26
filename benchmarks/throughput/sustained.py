@@ -2,14 +2,14 @@
 """Sustained-load memory + throughput benchmark: TerraServe serve vs MapServer (Apache + mod_fcgid)
 vs GeoServer (own container, provisioned over REST by the render benchmark's script, GWC off).
 
-All run as long-running HTTP servers (containers). We fire ~N GetMaps at VARYING bboxes
+All run as long-running HTTP servers (containers). We fire GetMaps for DURATION seconds at VARYING bboxes
 (panning -> grows GDAL's process-global block cache) and sample each container's
 ANONYMOUS memory over time (cgroup memory.stat `anon` = memory the process holds and must
 free itself; excludes reclaimable page cache, which both share reading the same COG).
 
 Reports baseline / peak / post-load-settle anon + throughput, an ASCII curve, and (if
 Pillow is present) a PNG plot. Run on the host via benchmarks/throughput/run.sh, or directly:
-    N=300 CONC=4 WARMUP=100 ENGINES=mapserver,ts-nocache,ts-lru,geoserver python3 benchmarks/throughput/sustained.py
+    DURATION=120 CONC=4 WARMUP=30 ENGINES=mapserver,ts-nocache,ts-lru,geoserver python3 benchmarks/throughput/sustained.py
 """
 import atexit
 import base64
@@ -75,12 +75,13 @@ for src, dst in [
 if not os.path.exists(COG):
     sys.exit(f"[ERROR] COG not found at {COG}. Run ./setup.sh")
 
-N = int(os.environ.get("N", "800"))
+DURATION = float(os.environ.get("DURATION", "120"))  # measured seconds per engine
+N = int(os.environ.get("N") or 0)                   # set: measure N requests instead, WARMUP in requests
 CONC = int(os.environ.get("CONC", "4"))
-# Discarded requests before the measured N, for EVERY engine, so a JVM's cold JIT and a
+# Discarded seconds of load before the measured DURATION, for EVERY engine, so a JVM's cold JIT and a
 # FastCGI pool still growing are not what "sustained" measures (cold starts are the render
 # benchmark's subject).
-WARMUP = int(os.environ.get("WARMUP", "100"))
+WARMUP = float(os.environ.get("WARMUP", "30"))
 ENGINE_KEYS = ["mapserver", "ts-nocache", "ts-lru", "geoserver"]
 ENGINES = [k for k in os.environ.get("ENGINES", ",".join(ENGINE_KEYS)).split(",") if k]
 _unknown = [k for k in ENGINES if k not in ENGINE_KEYS]
@@ -189,13 +190,28 @@ def one(target, i):
         return False
 
 
+def load(target, amount):
+    """CONC workers request back to back; worker w walks bboxes w, w+CONC, ... With N set, amount
+    is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP)."""
+    deadline = time.time() + amount
+
+    def worker(w):
+        out, i = [], w
+        while (i < amount) if N else (time.time() < deadline):
+            out.append(one(target, i))
+            i += CONC
+        return out
+
+    with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
+        return [ok for rs in ex.map(worker, range(CONC)) for ok in rs]
+
+
 def run_server(name, cid, target):
     if not wait_ready(name, cid, target):
         print(f"{name}: NOT READY (no PNG GetMap within the timeout)")
         return None
     if WARMUP:
-        with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-            list(ex.map(lambda i: one(target, i), range(WARMUP)))      # discarded
+        load(target, WARMUP)      # discarded
     time.sleep(1)
     baseline = cg_anon(cid)
     series, stop = [], threading.Event()
@@ -208,10 +224,9 @@ def run_server(name, cid, target):
 
     s = threading.Thread(target=sampler)
     s.start()
-    t0, ok = time.time(), 0
-    with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-        for r in ex.map(lambda i: one(target, i), range(N)):
-            ok += int(r)
+    t0 = time.time()
+    res = load(target, N or DURATION)
+    ok, n = sum(res), len(res)
     dur = time.time() - t0
     time.sleep(2)  # settle: does it give memory back?
     settle = cg_anon(cid)
@@ -219,11 +234,11 @@ def run_server(name, cid, target):
     s.join()
     peak = max((v for _, v in series), default=0)
     if ok == 0:
-        print(f"{name}: FAILED, 0/{N} PNG responses")
+        print(f"{name}: FAILED, 0/{n} PNG responses")
         return None
-    if ok < N:
-        print(f"{name}: WARNING only {ok}/{N} responses were PNGs")
-    return dict(name=name, baseline=baseline, peak=peak, settle=settle, ok=ok, dur=dur, series=series)
+    if ok < n:
+        print(f"{name}: WARNING only {ok}/{n} responses were PNGs")
+    return dict(name=name, baseline=baseline, peak=peak, settle=settle, ok=ok, n=n, dur=dur, series=series)
 
 
 def mb(x):
@@ -325,7 +340,7 @@ if "mapserver" in ENGINES:
 if "geoserver" in ENGINES:
     cids["geoserver"] = docker_run(["-v", f"{COG}:/data/cogs/{os.path.basename(COG)}:ro",
                                     "-p", "18091:8080", "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE])
-print("  ".join(f"{k} {v[:12]}" for k, v in cids.items()) + f"  N={N} warmup={WARMUP} conc={CONC} distinct_bboxes={len(BB)}")
+print("  ".join(f"{k} {v[:12]}" for k, v in cids.items()) + f"  {f'N={N}' if N else f'duration={DURATION:g}s'} warmup={WARMUP:g} conc={CONC} distinct_bboxes={len(BB)}")
 res, gs_ver = {}, None
 try:
     if "mapserver" in cids:
@@ -350,7 +365,7 @@ skipped = [k for k in ENGINE_KEYS if k not in ENGINES]
 mx = max((r["peak"] for r in results), default=1)
 print(f"\n{'engine':20s} {'ok/N':>10s} {'req/s':>7s} {'baseline':>9s} {'peak':>8s} {'settle':>8s}  anon under load")
 for r in results:
-    print(f"{r['name']:20s} {r['ok']:>4d}/{N:<5d} {r['ok']/r['dur']:>7.1f} "
+    print(f"{r['name']:20s} {r['ok']:>5d}/{r['n']:<6d} {r['ok']/r['dur']:>7.1f} "
           f"{mb(r['baseline']):>7.1f}MB {mb(r['peak']):>6.1f}MB {mb(r['settle']):>6.1f}MB  {spark(r['series'], mx)}")
 
 import datetime
@@ -369,7 +384,7 @@ for r in results:
     key, fam, variant = IDENT[r["name"]]
     e = {"key": key, "label": r["name"], "family": fam, "shape": "warm-http",
          "version": VERSION[fam], "image": IMAGE[fam],
-         "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": N, "dur_s": round(r["dur"], 1),
+         "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": r["n"], "dur_s": round(r["dur"], 1),
                      "baseline_mb": round(mb(r["baseline"]), 1), "peak_mb": round(mb(r["peak"]), 1),
                      "settle_mb": round(mb(r["settle"]), 1)}}
     if variant:
@@ -381,7 +396,7 @@ for r in results:
     engines.append(e)
 json.dump({"benchmark": "throughput",
            "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           "params": {"n": N, "warmup": WARMUP, "conc": CONC, "size": 256, "distinct_bboxes": len(BB),
+           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "size": 256, "distinct_bboxes": len(BB),
                       "crs": "EPSG:3763", "cog": os.path.basename(COG), "gs_xmx": GS_XMX},
            "engines": engines, "failed": failed, "skipped": skipped, "plot": "sustained.png"},
           open(f"{RESULTS_DIR}/throughput.json", "w"), indent=2)
@@ -412,7 +427,7 @@ try:
         if len(pts) > 1:
             d.line(pts, fill=c, width=3)
     d.text((pad, 18), "Sustained GetMap load: anonymous memory held by the process", fill=(0, 0, 0))
-    d.text((pad, 34), f"({N} varying-bbox requests, {CONC} concurrent; lower is better; page cache excluded)", fill=(110, 110, 110))
+    d.text((pad, 34), f"({f'{N} requests' if N else f'{DURATION:g} s'} of varying-bbox requests, {CONC} concurrent; lower is better; page cache excluded)", fill=(110, 110, 110))
     ly = pad + 8
     for r in results:
         c = colors.get(r["name"], (0, 0, 0))

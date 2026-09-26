@@ -97,6 +97,15 @@ def version_label(family, version=None, image=None):
     return name
 
 
+def load_text(p):
+    """How long each engine was loaded: a request count (N set, and every run before DURATION) or seconds."""
+    w = p.get("warmup", "?")
+    w = f"{w:g}" if isinstance(w, (int, float)) else w
+    if p.get("n"):
+        return f"N={p['n']} requests after {w} warm-up per engine"
+    return f"{p.get('duration_s', '?')} s per engine after {w} s warm-up"
+
+
 def fmt(x, unit="", nd=1):
     if x is None:
         return "?"
@@ -309,8 +318,7 @@ def render_markdown(run):
     out += ["## Throughput (sustained GetMap under panning)", ""]
     if t:
         p = t.get("params", {})
-        warm = f" after {p['warmup']} warm-up per engine" if p.get("warmup") else ""
-        out.append(f"N={p.get('n', '?')} requests{warm}, {p.get('conc', '?')} concurrent, {p.get('size', '?')}x{p.get('size', '?')}, "
+        out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, {p.get('size', '?')}x{p.get('size', '?')}, "
                    f"{p.get('distinct_bboxes', '?')} distinct bboxes.")
         out += ["", "| engine | req/s | ok/N | baseline | peak | settle |", "|---|---|---|---|---|---|"]
         for e in t.get("engines", []):
@@ -332,7 +340,7 @@ def render_markdown(run):
     out += ["## Vector (COS2023 land cover as WMS)", ""]
     if v:
         p = v.get("params", {})
-        out.append(f"N={p.get('n', '?')} requests after {p.get('warmup', '?')} warm-up, {p.get('conc', '?')} concurrent, "
+        out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, "
                    f"{p.get('size', '?')}x{p.get('size', '?')}, {p.get('distinct_bboxes', '?')} distinct bboxes.")
         out += ["", "| engine | req/s | ok/N | p50 | p95 | base | peak | settle | note |", "|---|---|---|---|---|---|---|---|---|"]
         for e in v.get("engines", []):

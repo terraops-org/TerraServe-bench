@@ -49,7 +49,7 @@ engines:
     description: "TerraServe 0.3.5 (vello_cpu render engine). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
 
 # Benchmark settings are NOT read from this file. Each run.sh takes environment variables
-# (render: W H MEM_RUNS; throughput: N CONC; vector: N WARMUP CONC ENGINES), see the README.
+# (render: W H MEM_RUNS; throughput: DURATION WARMUP CONC; vector: DURATION WARMUP CONC ENGINES), see the README.
 
 # Where setup.sh downloads from: https://<host><path>/<file>. Override with VPS_HOST / VPS_PATH.
 vps:

@@ -80,7 +80,7 @@ docker compose down && docker compose up -d geoserver postgis && cd benchmarks/r
 **Individual benchmarks:**
 ```bash
 cd benchmarks/render && ./run.sh        # MapServer vs TerraServe vs GeoServer
-cd benchmarks/throughput && ./run.sh    # Sustained load: MapServer vs TerraServe vs GeoServer (800 requests, 4 concurrent)
+cd benchmarks/throughput && ./run.sh    # Sustained load: MapServer vs TerraServe vs GeoServer (120 s per engine, 4 concurrent)
 cd benchmarks/vector && ./run.sh        # COS2023 vector WMS: TerraServe vs MapServer vs GeoServer
 ```
 
@@ -140,15 +140,15 @@ Long-running servers under load with varying bboxes (simulates panning).
 - Tail latency
 
 **Configuration:**
-- Total requests: 800 (default), over 600 distinct bboxes
+- Duration: 120 s measured per engine (default), over 600 distinct bboxes
 - Concurrent connections: 4 (default)
-- Warm-up: 100 discarded requests per engine before the measured N (default)
+- Warm-up: 30 s of discarded requests per engine before the measured run (default)
 - Engines: MapServer (Apache + mod_fcgid), TerraServe (no cache, and LRU 256) and
   GeoServer (own container, `-Xms512m -Xmx4096m`, GWC off, provisioned over REST)
 
 Set via environment:
 ```bash
-CONC=8 N=2000 WARMUP=200 ./run.sh
+CONC=8 DURATION=300 WARMUP=60 ./run.sh
 ENGINES=mapserver,ts-nocache ./run.sh     # keys: mapserver ts-nocache ts-lru geoserver
 ```
 
@@ -169,6 +169,14 @@ bboxes over an all-land interior window.
 - req/s, p50 and p95 latency, ok/N (a response only counts when it is a PNG)
 - cgroup `anon` memory: base, peak under load, settle
 - `sample_cos_<engine>.png` per engine for a visual parity check
+
+**Load:** by default each engine gets 30 s of warm-up and 120 s of measured load, with 16 clients.
+`DURATION`, `WARMUP` and `CONC` change that; `N=<requests>` measures a fixed request count
+instead, with `WARMUP` then counted in requests too. For the peak load of many users at once:
+
+```bash
+CONC=128 ./run.sh
+```
 
 ## Repository Structure
 
@@ -230,11 +238,11 @@ Override benchmarks at runtime:
 # Render: image size, memory repeats
 W=1024 H=768 MEM_RUNS=5 ./benchmarks/render/run.sh
 
-# Throughput: requests, warm-up, concurrency, engines
-CONC=8 N=2000 WARMUP=200 ENGINES=mapserver,ts-nocache,geoserver ./benchmarks/throughput/run.sh
+# Throughput: seconds measured, seconds of warm-up, concurrency, engines
+CONC=8 DURATION=300 WARMUP=60 ENGINES=mapserver,ts-nocache,geoserver ./benchmarks/throughput/run.sh
 
-# Vector: engines, requests, warm-up, concurrency
-ENGINES=ts-nocache,mapserver N=200 WARMUP=100 CONC=8 ./benchmarks/vector/run.sh
+# Vector: engines, seconds measured, seconds of warm-up, concurrency
+ENGINES=ts-nocache,mapserver DURATION=120 WARMUP=30 CONC=8 ./benchmarks/vector/run.sh
 
 # A local TerraServe instead of the pinned release (the report says LOCAL BUILD)
 TS_BIN=/path/to/terraserve ./benchmarks/render/run.sh

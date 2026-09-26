@@ -55,7 +55,7 @@ def make_run(d, render=True, throughput=True, vector=True, ts_median=28.8, ts_re
     if vector:
         write(d, "vector.json", {
             "benchmark": "vector", "date": "2026-09-06T08:02:00Z",
-            "params": {"n": 100, "warmup": 50, "conc": 8, "size": 256, "distinct_bboxes": 81},
+            "params": {"n": 0, "duration_s": 120, "warmup": 30, "conc": 8, "size": 256, "distinct_bboxes": 81},
             "engines": [
                 {"key": "ts-nocache", "label": "TerraServe-nocache", "family": "terraserve", "variant": "nocache", "cache": False, "shape": "warm-http", "version": "terraserve 0.2.0",
                  "metrics": {"req_s": 154.3, "p50_ms": 50, "p95_ms": 82, "base_mb": 199, "peak_mb": 298, "settle_mb": 153, "ok": 100, "n": 100}},
@@ -160,6 +160,12 @@ class Markdown(unittest.TestCase):
             make_run(d)
             md = report.render_markdown(report.load(d))
             self.assertIn("N=100 requests after 100 warm-up per engine", md)
+
+    def test_vector_states_its_duration(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("120 s per engine after 30 s warm-up", md)
 
     def test_engine_left_out_with_engines_says_not_selected(self):
         with tempfile.TemporaryDirectory() as d:

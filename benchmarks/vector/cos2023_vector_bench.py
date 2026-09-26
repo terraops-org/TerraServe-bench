@@ -13,7 +13,7 @@ Fairness::
     engine; cgroup `anon` sampled identically (page cache excluded - it's shared read-only data).
 
 Run:  benchmarks/vector/run.sh, or directly python3 benchmarks/vector/cos2023_vector_bench.py
-Env:  N (default 600) WARMUP (300) CONC (16) ENGINES (csv of keys; default ts+mapserver)
+Env:  DURATION (seconds, default 120) WARMUP (seconds, 30), or N (requests) and then WARMUP in requests; CONC (16) ENGINES (csv of keys; default ts+mapserver)
       TS_IMAGE / MS_IMAGE / GS_IMAGE default to the pins in config.yaml
 """
 import concurrent.futures as cf
@@ -46,8 +46,9 @@ GPKG = os.path.realpath(os.path.join(GPKG_DIR, "COS2023v1-S2.gpkg"))
 # back to this directory so the script still works on its own.
 RESULTS_DIR = os.environ.get("RESULTS_DIR") or BENCH
 
-N = int(os.environ.get("N", "600"))
-WARMUP = int(os.environ.get("WARMUP", "300"))
+DURATION = float(os.environ.get("DURATION", "120"))  # measured seconds per engine
+N = int(os.environ.get("N") or 0)                   # set: measure N requests instead, WARMUP in requests
+WARMUP = float(os.environ.get("WARMUP", "30"))      # discarded seconds (or requests with N) per engine
 CONC = int(os.environ.get("CONC", "16"))
 WMS_VERSION = "1.3.0"
 WANT = [k for k in os.environ.get("ENGINES", "").split(",") if k]
@@ -228,13 +229,21 @@ def one(engine, i):
     return ok, (time.time() - t) * 1000.0
 
 
-def load(engine, n):
-    ok, lat = 0, []
+def load(engine, amount):
+    """CONC workers request back to back; worker w walks bboxes w, w+CONC, ... With N set, amount
+    is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP)."""
+    deadline = time.time() + amount
+
+    def worker(w):
+        out, i = [], w
+        while (i < amount) if N else (time.time() < deadline):
+            out.append(one(engine, i))
+            i += CONC
+        return out
+
     with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-        for good, ms in ex.map(lambda i: one(engine, i), range(n)):
-            ok += int(good)
-            lat.append(ms)
-    return ok, lat
+        res = [r for rs in ex.map(worker, range(CONC)) for r in rs]
+    return sum(ok for ok, _ in res), [ms for _, ms in res]
 
 
 def pct(vals, p):
@@ -285,7 +294,7 @@ def run_engine(engine):
         s = threading.Thread(target=sampler)
         s.start()
         t0 = time.time()
-        ok, lat = load(engine, N)
+        ok, lat = load(engine, N or DURATION)
         dur = time.time() - t0
         time.sleep(2)
         settle = cg_anon(cid)
@@ -297,10 +306,10 @@ def run_engine(engine):
         except Exception:
             pass
         if ok == 0:
-            print(f"  {engine.label}: FAILED, 0/{N} PNG responses (see sample_cos_{engine.key}.png for what came back)")
+            print(f"  {engine.label}: FAILED, 0/{len(lat)} PNG responses (see sample_cos_{engine.key}.png for what came back)")
             return None
-        if ok < N:
-            print(f"  {engine.label}: WARNING only {ok}/{N} responses were PNGs")
+        if ok < len(lat):
+            print(f"  {engine.label}: WARNING only {ok}/{len(lat)} responses were PNGs")
         return dict(engine=engine, ok=ok, dur=dur, lat=lat, baseline=baseline,
                     peak=max(series, default=0), settle=settle, version=version)
     finally:
@@ -328,7 +337,7 @@ def write_results(results, failed=(), skipped=()):
         rec = {"key": e.key, "label": e.label, "family": fam, "shape": "warm-http",
                "cache": e.key == "ts-wmscache", "version": r.get("version"), "image": IMAGE[fam](),
                "mem_note": e.mem_note,
-               "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": N, "dur_s": round(r["dur"], 1),
+               "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": len(r["lat"]), "dur_s": round(r["dur"], 1),
                            "p50_ms": round(pct(r["lat"], 50)), "p95_ms": round(pct(r["lat"], 95)),
                            "p99_ms": round(pct(r["lat"], 99)),
                            "base_mb": round(mb(r["baseline"])), "peak_mb": round(mb(r["peak"])),
@@ -338,7 +347,7 @@ def write_results(results, failed=(), skipped=()):
         engines.append(rec)
     json.dump({"benchmark": "vector",
                "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-               "params": {"n": N, "warmup": WARMUP, "conc": CONC, "size": SIZE, "distinct_bboxes": len(BB),
+               "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "size": SIZE, "distinct_bboxes": len(BB),
                           "crs": CRS, "wms": WMS_VERSION, "gpkg": "COS2023v1-S2.gpkg",
                           "gdal_cachemax_mb": int(GDAL_CACHEMAX), "ms_max_procs": int(MS_MAX_PROCS), "gs_xmx": GS_XMX},
                "engines": engines, "failed": list(failed), "skipped": list(skipped)},
@@ -364,7 +373,7 @@ def main():
     selected = {e.key for e in all_e}
     skipped = [e.key for e in engines() if e.key not in selected]     # the report says "not selected"
     print(f"profile=cos2023-vector  data=COS2023v1-S2.gpkg(842413 MultiPolygons, EPSG:3763)")
-    print(f"N={N} warmup={WARMUP} conc={CONC} size={SIZE}x{SIZE} win={WIN:.0f}m "
+    print(f"{f'N={N}' if N else f'duration={DURATION:g}s'} warmup={WARMUP:g} conc={CONC} size={SIZE}x{SIZE} win={WIN:.0f}m "
           f"distinct_bboxes={len(BB)} wms={WMS_VERSION}")
     results, failed = [], []
     for e in all_e:
@@ -372,7 +381,7 @@ def main():
         r = run_engine(e)
         if r:
             results.append(r)
-            print(f"    ok {r['ok']}/{N}  {r['ok']/r['dur']:.1f} req/s  "
+            print(f"    ok {r['ok']}/{len(r['lat'])}  {r['ok']/r['dur']:.1f} req/s  "
                   f"p50 {pct(r['lat'],50):.0f}ms  p95 {pct(r['lat'],95):.0f}ms  "
                   f"peak {mb(r['peak']):.0f}M")
         else:
@@ -381,7 +390,7 @@ def main():
           f"{'base':>7s} {'peak':>7s} {'settle':>7s}")
     for r in results:
         e = r["engine"]
-        print(f"{e.label:24s} {r['ok']:>4d}/{N:<5d} {r['ok']/r['dur']:>8.1f} "
+        print(f"{e.label:24s} {r['ok']:>5d}/{len(r['lat']):<6d} {r['ok']/r['dur']:>8.1f} "
               f"{pct(r['lat'],50):>8.0f} {pct(r['lat'],95):>8.0f} "
               f"{mb(r['baseline']):>6.0f}M {mb(r['peak']):>6.0f}M {mb(r['settle']):>6.0f}M")
     print("\nmemory model (why `anon` differs per engine):")
