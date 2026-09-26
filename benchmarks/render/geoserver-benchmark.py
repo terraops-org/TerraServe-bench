@@ -37,7 +37,7 @@ def compose_container(service="geoserver", port=8080):
 
 
 def java_opts(container):
-    """GEOSERVER_JAVA_OPTS as the container was actually started with.
+    """EXTRA_JAVA_OPTS (the variable the osgeo image passes to the JVM) as the container was actually started with.
 
     The memory number is meaningless without this: -Xms alone moved anon by 218 MB
     on the reference box, with no change to the rendering work.
@@ -47,7 +47,7 @@ def java_opts(container):
             ["docker", "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", container],
             capture_output=True, text=True, timeout=20)
         for line in out.stdout.splitlines():
-            if line.startswith("GEOSERVER_JAVA_OPTS="):
+            if line.startswith("EXTRA_JAVA_OPTS="):
                 return line.split("=", 1)[1]
     except (OSError, subprocess.SubprocessError):
         pass

@@ -29,11 +29,11 @@ services:
     environment:
       GEOSERVER_ADMIN_USER: admin
       GEOSERVER_ADMIN_PASSWORD: geoserver
-      GEOSERVER_JAVA_OPTS: "-Xms1g -Xmx4g"
+      EXTRA_JAVA_OPTS: "-Xms1g -Xmx4g"
     ports:
       - "8080:8080"
     volumes:
-      - geoserver_data:/opt/geoserver/data_dir
+      - geoserver_data:/opt/geoserver_data
       - ./data:/data/cogs:ro
       - ./config:/config:ro
     labels:

@@ -194,7 +194,7 @@ If every request stays slow rather than just the first, raise the JVM heap in
 ```yaml
 geoserver:
   environment:
-    GEOSERVER_JAVA_OPTS: "-Xms2g -Xmx8g"
+    EXTRA_JAVA_OPTS: "-Xms2g -Xmx8g"
 ```
 
 ## Advanced
@@ -221,7 +221,7 @@ View GeoServer request logs:
 
 ```bash
 docker compose exec geoserver tail -f \
-  /opt/geoserver/data_dir/logs/geoserver.log
+  /opt/geoserver_data/logs/geoserver.log
 ```
 
 Monitor memory/CPU:
