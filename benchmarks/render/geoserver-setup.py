@@ -51,6 +51,13 @@ class GeoServerSetup:
             print(f"[ERROR] {method} {endpoint}: {e}", file=sys.stderr)
             return None
 
+    def set_production_logging(self):
+        """The image starts with DEFAULT_LOGGING, which writes every parsed request to the log
+        and stdout; a server under load runs with PRODUCTION_LOGGING."""
+        print("[*] Setting logging to PRODUCTION_LOGGING...")
+        data = {"logging": {"level": "PRODUCTION_LOGGING", "location": "logs/geoserver.log", "stdOutLogging": True}}
+        return self.request("PUT", "/logging", data, expect_status=200) is not None
+
     def create_workspace(self):
         """Create 'benchmarks' workspace."""
         print(f"[*] Creating workspace '{self.workspace}'...")
@@ -170,6 +177,8 @@ class GeoServerSetup:
         """
         print("\n=== GeoServer Benchmark Layer Setup ===\n")
 
+        if not self.set_production_logging():
+            return False
         if not self.create_workspace():
             return False
 

@@ -33,11 +33,12 @@ cd benchmarks/render
 
 This will:
 1. Health-check GeoServer at `http://localhost:8080/geoserver`
-2. Create workspace `benchmarks` via REST API
-3. Create coverage store for Cascais RGB COG
-4. Publish coverage layer `cascais_rgb_cog`
-5. Run 6 timed WMS GetMap requests
-6. Report best/median time and output size
+2. Switch logging to `PRODUCTION_LOGGING` (the image starts with `DEFAULT_LOGGING`, which logs every request)
+3. Create workspace `benchmarks` via REST API
+4. Create coverage store for Cascais RGB COG
+5. Publish coverage layer `cascais_rgb_cog`
+6. Run 6 timed WMS GetMap requests
+7. Report best/median time and output size
 
 ## How It Works
 
