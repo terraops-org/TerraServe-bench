@@ -167,6 +167,17 @@ class Markdown(unittest.TestCase):
             md = report.render_markdown(report.load(d))
             self.assertIn("120 s per engine after 30 s warm-up", md)
 
+    def test_unique_requests_are_stated(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            vec = json.load(open(os.path.join(d, "vector.json")))
+            vec["params"]["unique_requests"] = True
+            write(d, "vector.json", vec)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("81 grid cells, each request shifted so none repeats", md)
+            self.assertIn("response cache on, no request repeats", md)
+            self.assertIn("600 distinct bboxes", md)      # throughput run from before, cycled the grid
+
     def test_engine_left_out_with_engines_says_not_selected(self):
         with tempfile.TemporaryDirectory() as d:
             make_run(d)

@@ -19,6 +19,7 @@ Env:  DURATION (seconds, default 120) WARMUP (seconds, 30), or N (requests) and 
 import http.client
 import multiprocessing as mp
 import os
+import random
 import subprocess
 import sys
 import threading
@@ -102,6 +103,7 @@ def bboxes():
 
 
 BB = bboxes()
+MEASURED = 10 ** 9  # first request number of the measured run, past any warm-up
 
 
 class Engine:
@@ -153,7 +155,12 @@ def geoserver_setup(base_url):
 
 
 def url(engine, i):
+    # Every request is a new one: the grid cell moved by up to a third of the window, seeded by i,
+    # so a response or tile cache cannot answer a repeat and runs stay reproducible.
+    rnd = random.Random(i)
+    dx, dy = rnd.uniform(0, WIN / 3), rnd.uniform(0, WIN / 3)
     x0, y0, x1, y1 = BB[i % len(BB)]
+    x0, y0, x1, y1 = x0 + dx, y0 + dy, x1 + dx, y1 + dy
     extra = f"&{engine.extra_query}" if engine.extra_query else ""
     return (f"{engine.base_url()}?SERVICE=WMS&VERSION={WMS_VERSION}&REQUEST=GetMap"
             f"&LAYERS={engine.layer}&STYLES=&CRS={CRS}{extra}"
@@ -256,21 +263,21 @@ _LOAD = None
 
 
 def client(w):
-    engine, amount, deadline = _LOAD
-    out, i = [], w
-    while (i < amount) if N else (time.time() < deadline):
+    engine, amount, deadline, first = _LOAD
+    out, i = [], first + w
+    while (i - first < amount) if N else (time.time() < deadline):
         out.append(one(engine, i))
         i += CONC
     return out
 
 
-def load(engine, amount):
+def load(engine, amount, first=0):
     """CONC client processes request back to back; client w walks bboxes w, w+CONC, ... With N set,
     amount is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP). Processes, not
     threads: one Python process runs out of CPU (GIL) at a few thousand req/s, before a fast engine
     does. Forked, so the clients inherit the target from _LOAD without pickling it."""
     global _LOAD
-    _LOAD = (engine, amount, time.time() + amount)
+    _LOAD = (engine, amount, time.time() + amount, first)
     with mp.get_context("fork").Pool(CONC) as pool:
         res = [r for rs in pool.map(client, range(CONC)) for r in rs]
     return sum(ok for ok, _ in res), [ms for _, ms in res]
@@ -324,7 +331,7 @@ def run_engine(engine):
         s = threading.Thread(target=sampler)
         s.start()
         t0 = time.time()
-        ok, lat = load(engine, N or DURATION)
+        ok, lat = load(engine, N or DURATION, first=MEASURED)
         dur = time.time() - t0
         time.sleep(2)
         settle = cg_anon(cid)
@@ -377,7 +384,7 @@ def write_results(results, failed=(), skipped=()):
         engines.append(rec)
     json.dump({"benchmark": "vector",
                "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-               "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "size": SIZE, "distinct_bboxes": len(BB),
+               "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "size": SIZE, "distinct_bboxes": len(BB), "unique_requests": True,
                           "crs": CRS, "wms": WMS_VERSION, "gpkg": "COS2023v1-S2.gpkg",
                           "gdal_cachemax_mb": int(GDAL_CACHEMAX), "ms_max_procs": int(MS_MAX_PROCS), "gs_xmx": GS_XMX},
                "engines": engines, "failed": list(failed), "skipped": list(skipped)},

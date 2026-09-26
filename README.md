@@ -140,7 +140,8 @@ Long-running servers under load with varying bboxes (simulates panning).
 - Tail latency
 
 **Configuration:**
-- Duration: 120 s measured per engine (default), over 600 distinct bboxes
+- Duration: 120 s measured per engine (default), over 600 grid cells; each request is shifted by a
+  seeded random offset, so no request repeats and a response cache cannot answer it
 - Concurrent connections: one per host core (default, `nproc`)
 - Warm-up: 30 s of discarded requests per engine before the measured run (default)
 - Engines: MapServer (Apache + mod_fcgid), TerraServe (no cache, and LRU 256) and
@@ -162,8 +163,8 @@ This is the like-for-like server comparison, all three engines warm.
 response cache on, listed but kept out of the summary), `mapserver` (Apache + mod_fcgid),
 `geoserver` (own container, GWC off).
 
-**Dataset:** COS 2023 v1 (Portugal land cover, 842,413 polygons, EPSG:3763), 81 distinct
-bboxes over an all-land interior window.
+**Dataset:** COS 2023 v1 (Portugal land cover, 842,413 polygons, EPSG:3763), 81 grid
+cells over an all-land interior window, each request shifted so none repeats.
 
 **Metrics:**
 - req/s, p50 and p95 latency, ok/N (a response only counts when it is a PNG)

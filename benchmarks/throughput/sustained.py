@@ -17,6 +17,7 @@ import http.client
 import json
 import multiprocessing as mp
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -107,6 +108,7 @@ def bboxes():
 
 
 BB = bboxes()
+MEASURED = 10 ** 9  # first request number of the measured run, past any warm-up
 
 
 def url(target, i):
@@ -114,7 +116,12 @@ def url(target, i):
     layer and TRANSPARENT=true (without it a quarter of the image is opaque white where
     the other engines leave nodata transparent, see the render benchmark)."""
     base, layer, extra = target
+    # Every request is a new one: the grid cell moved by up to a third of the window, seeded by i,
+    # so a response or tile cache cannot answer a repeat and runs stay reproducible.
+    rnd = random.Random(i)
+    dx, dy = rnd.uniform(0, WIN / 3), rnd.uniform(0, WIN / 3)
     x0, y0, x1, y1 = BB[i % len(BB)]
+    x0, y0, x1, y1 = x0 + dx, y0 + dy, x1 + dx, y1 + dy
     # MapServer's base already carries ?map=..., so keep appending with & in that case.
     sep = "&" if "?" in base else "?"
     return (f"{base}{sep}SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS={layer}&STYLES="
@@ -218,21 +225,21 @@ _LOAD = None
 
 
 def client(w):
-    target, amount, deadline = _LOAD
-    out, i = [], w
-    while (i < amount) if N else (time.time() < deadline):
+    target, amount, deadline, first = _LOAD
+    out, i = [], first + w
+    while (i - first < amount) if N else (time.time() < deadline):
         out.append(one(target, i))
         i += CONC
     return out
 
 
-def load(target, amount):
+def load(target, amount, first=0):
     """CONC client processes request back to back; client w walks bboxes w, w+CONC, ... With N set,
     amount is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP). Processes, not
     threads: one Python process runs out of CPU (GIL) at a few thousand req/s, before a fast engine
     does. Forked, so the clients inherit the target from _LOAD without pickling it."""
     global _LOAD
-    _LOAD = (target, amount, time.time() + amount)
+    _LOAD = (target, amount, time.time() + amount, first)
     with mp.get_context("fork").Pool(CONC) as pool:
         return [ok for rs in pool.map(client, range(CONC)) for ok in rs]
 
@@ -256,7 +263,7 @@ def run_server(name, cid, target):
     s = threading.Thread(target=sampler)
     s.start()
     t0 = time.time()
-    res = load(target, N or DURATION)
+    res = load(target, N or DURATION, first=MEASURED)
     ok, n = sum(res), len(res)
     dur = time.time() - t0
     time.sleep(2)  # settle: does it give memory back?
@@ -428,7 +435,7 @@ for r in results:
     engines.append(e)
 json.dump({"benchmark": "throughput",
            "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "ms_max_procs": int(MS_MAX_PROCS), "size": 256, "distinct_bboxes": len(BB),
+           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "ms_max_procs": int(MS_MAX_PROCS), "size": 256, "distinct_bboxes": len(BB), "unique_requests": True,
                       "crs": "EPSG:3763", "cog": os.path.basename(COG), "gs_xmx": GS_XMX},
            "engines": engines, "failed": failed, "skipped": skipped, "plot": "sustained.png"},
           open(f"{RESULTS_DIR}/throughput.json", "w"), indent=2)

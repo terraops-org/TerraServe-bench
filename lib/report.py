@@ -106,6 +106,13 @@ def load_text(p):
     return f"{p.get('duration_s', '?')} s per engine after {w} s warm-up"
 
 
+def bbox_text(p):
+    """Runs before unique_requests cycled the grid, so a cache could answer the repeats."""
+    if p.get("unique_requests"):
+        return f"{p.get('distinct_bboxes', '?')} grid cells, each request shifted so none repeats"
+    return f"{p.get('distinct_bboxes', '?')} distinct bboxes"
+
+
 def fmt(x, unit="", nd=1):
     if x is None:
         return "?"
@@ -171,9 +178,9 @@ HOW_TO_READ = """## How to read this
   comparable with each other. Throughput and vector are warm HTTP servers for every engine.
 - **Memory is cgroup v2 `anon` for every engine.** For a cold process it is what one render
   cost; for the JVM it is what it holds. Page cache is excluded everywhere.
-- **A cache-hit row is not a render rate.** TerraServe's WMS-cache row in the vector table
-  serves repeats from memory while the other engines render every request. It is listed for
-  completeness and kept out of the summary.
+- **A cache row is kept out of the summary.** TerraServe's WMS-cache row in the vector table
+  has its response cache on. No request repeats, so it renders every request like the other
+  engines; in runs made before requests were unique it served repeats from memory.
 - **Which TerraServe:** the version column says what ran. A LOCAL BUILD marker means a
   developer binary was substituted for the pinned release.
 - **Empty cells mean several different things.** `not run`: that benchmark was not part of
@@ -319,7 +326,7 @@ def render_markdown(run):
     if t:
         p = t.get("params", {})
         out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, {p.get('size', '?')}x{p.get('size', '?')}, "
-                   f"{p.get('distinct_bboxes', '?')} distinct bboxes.")
+                   f"{bbox_text(p)}.")
         out += ["", "| engine | req/s | ok/N | baseline | peak | settle |", "|---|---|---|---|---|---|"]
         for e in t.get("engines", []):
             m = e.get("metrics", {})
@@ -341,11 +348,12 @@ def render_markdown(run):
     if v:
         p = v.get("params", {})
         out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, "
-                   f"{p.get('size', '?')}x{p.get('size', '?')}, {p.get('distinct_bboxes', '?')} distinct bboxes.")
+                   f"{p.get('size', '?')}x{p.get('size', '?')}, {bbox_text(p)}.")
         out += ["", "| engine | req/s | ok/N | p50 | p95 | base | peak | settle | note |", "|---|---|---|---|---|---|---|---|---|"]
         for e in v.get("engines", []):
             m = e.get("metrics", {})
-            note = "cache-hit rate, not a render rate" if e.get("cache") else ""
+            note = ("" if not e.get("cache") else
+                    "response cache on, no request repeats" if p.get("unique_requests") else "cache-hit rate, not a render rate")
             out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {m.get('ok', '?')}/{m.get('n', '?')} | "
                        f"{fmt(m.get('p50_ms'), ' ms', 0)} | {fmt(m.get('p95_ms'), ' ms', 0)} | {fmt(m.get('base_mb'), ' MB', 0)} | "
                        f"{fmt(m.get('peak_mb'), ' MB', 0)} | {fmt(m.get('settle_mb'), ' MB', 0)} | {note} |")
