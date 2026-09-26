@@ -169,7 +169,8 @@ def url(engine, i):
     extra = f"&{engine.extra_query}" if engine.extra_query else ""
     return (f"{engine.base_url()}?SERVICE=WMS&VERSION={WMS_VERSION}&REQUEST=GetMap"
             f"&LAYERS={engine.layer}&STYLES=&CRS={CRS}{extra}"
-            f"&BBOX={x0},{y0},{x1},{y1}&WIDTH={SIZE}&HEIGHT={SIZE}&FORMAT={FMT}")
+            f"&BBOX={x0},{y0},{x1},{y1}&WIDTH={SIZE}&HEIGHT={SIZE}&FORMAT={FMT}"
+            "&TRANSPARENT=true")  # same RGBA image from every engine, see the throughput benchmark
 
 
 _STAT = {}

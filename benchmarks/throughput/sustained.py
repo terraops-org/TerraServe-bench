@@ -116,10 +116,9 @@ MEASURED = 10 ** 9  # first request number of the measured run, past any warm-up
 
 
 def url(target, i):
-    """target = (base_url, layer, extra_query). GeoServer needs its workspace-qualified
-    layer and TRANSPARENT=true (without it a quarter of the image is opaque white where
-    the other engines leave nodata transparent, see the render benchmark)."""
-    base, layer, extra = target
+    """target = (base_url, layer). Every engine gets TRANSPARENT=true, so all of them encode the
+    same RGBA image; without it GeoServer rightly answers opaque RGB, one band less to encode."""
+    base, layer = target
     # Every request is a new one: the grid cell moved by up to a third of the window, seeded by i,
     # so a response or tile cache cannot answer a repeat and runs stay reproducible.
     rnd = random.Random(i)
@@ -129,7 +128,7 @@ def url(target, i):
     # MapServer's base already carries ?map=..., so keep appending with & in that case.
     sep = "&" if "?" in base else "?"
     return (f"{base}{sep}SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS={layer}&STYLES="
-            f"&CRS=EPSG:3763&BBOX={x0},{y0},{x1},{y1}&WIDTH=256&HEIGHT=256&FORMAT=image/png{extra}")
+            f"&CRS=EPSG:3763&BBOX={x0},{y0},{x1},{y1}&WIDTH=256&HEIGHT=256&FORMAT=image/png&TRANSPARENT=true")
 
 
 def docker_run(args):
@@ -388,16 +387,16 @@ res, gs_ver = {}, None
 try:
     if "mapserver" in cids:
         res["mapserver"] = run_server("MapServer", cids["mapserver"],
-                                      (f"http://localhost:18090/?map={MS_MAPFILE}", "cascais", ""))
+                                      (f"http://localhost:18090/?map={MS_MAPFILE}", "cascais"))
     if "ts-nocache" in cids:
-        res["ts-nocache"] = run_server("TerraServe-nocache", cids["ts-nocache"], ("http://localhost:18081/wms", "cascais", ""))
+        res["ts-nocache"] = run_server("TerraServe-nocache", cids["ts-nocache"], ("http://localhost:18081/wms", "cascais"))
     if "ts-lru" in cids:
-        res["ts-lru"] = run_server("TerraServe-LRU", cids["ts-lru"], ("http://localhost:18080/wms", "cascais", ""))
+        res["ts-lru"] = run_server("TerraServe-LRU", cids["ts-lru"], ("http://localhost:18080/wms", "cascais"))
     if "geoserver" in cids:
         gs_ver = geoserver_setup(cids["geoserver"], "http://localhost:18091/geoserver")
         if gs_ver:
             res["geoserver"] = run_server("GeoServer", cids["geoserver"],
-                                          ("http://localhost:18091/geoserver/ows", "benchmarks:cascais_rgb_cog", "&TRANSPARENT=true"))
+                                          ("http://localhost:18091/geoserver/ows", "benchmarks:cascais_rgb_cog"))
 finally:
     if cids:
         subprocess.run(["docker", "rm", "-f"] + list(cids.values()), capture_output=True)
