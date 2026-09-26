@@ -55,15 +55,15 @@ def pinned_image(engine, default):
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
 TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.2.0")
 TS_BIN = os.environ.get("TS_BIN") or None  # a local build instead of the pinned release
-GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
+GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.1")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
 # The gs-libdeflate community module inflates the COG tiles with libdeflate instead of zlib.
 # Release jars matching GS_IMAGE's GeoServer and imageio-ext versions; libdeflate-java-core
 # ships a native library for linux x86_64 only.
 OSGEO_REPO = "https://repo.osgeo.org/repository/release"
 GS_LIBDEFLATE_JARS = [
-    f"{OSGEO_REPO}/org/geoserver/community/gs-libdeflate/2.26.1/gs-libdeflate-2.26.1.jar",
-    f"{OSGEO_REPO}/it/geosolutions/imageio-ext/imageio-ext-libdeflate/1.4.13/imageio-ext-libdeflate-1.4.13.jar",
+    f"{OSGEO_REPO}/org/geoserver/community/gs-libdeflate/3.0.1/gs-libdeflate-3.0.1.jar",
+    f"{OSGEO_REPO}/it/geosolutions/imageio-ext/imageio-ext-libdeflate/2.1.1/imageio-ext-libdeflate-2.1.1.jar",
     f"{OSGEO_REPO}/me/steinborn/libdeflate-java-core/0.1.0-beta/libdeflate-java-core-0.1.0-beta.jar"]
 GS_LIB = "/usr/local/tomcat/webapps/geoserver/WEB-INF/lib"
 # Same as the vector benchmark and the compose stack. When G1 has not collected for 5 s it runs a

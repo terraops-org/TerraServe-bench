@@ -80,7 +80,7 @@ def pinned_image(engine, default):
 # The pinned public release image, run as-is (fonts baked in, --wms-cache present).
 TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.2.0")
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
-GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
+GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.1")
 GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
 GS_JAVA_OPTS = (f"-Xms256m -Xmx{GS_XMX} -XX:G1PeriodicGCInterval=5000 "   # see benchmarks/throughput/sustained.py
@@ -145,7 +145,7 @@ def engines():
                 "-e", f"GDAL_CACHEMAX={GDAL_CACHEMAX}", MS_IMAGE],
                f"apache/mod_fcgid: <= {MS_MAX_PROCS} persistent mapserv workers; GDAL cache {GDAL_CACHEMAX}MB/worker",
                extra_query="map=/etc/mapserver/cos2023.map"),
-        Engine("geoserver", "GeoServer-2.26", 19100, "bench:cos2023v1", "/geoserver/wms",
+        Engine("geoserver", "GeoServer", 19100, "bench:cos2023v1", "/geoserver/wms",
                ["-p", "19100:8080", "-v", f"{GPKG}:/data/COS2023v1-S2.gpkg:ro",
                 "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE],
                f"JVM heap grows under load up to -Xmx={GS_XMX}, periodic G1 cycle gives it back when idle; GWC OFF (dynamic render)",

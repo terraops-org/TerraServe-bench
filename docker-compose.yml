@@ -22,7 +22,7 @@ services:
 
   # GeoServer for raster and vector rendering
   geoserver:
-    image: docker.osgeo.org/geoserver:2.26.1
+    image: docker.osgeo.org/geoserver:3.0.1
     depends_on:
       postgis:
         condition: service_healthy

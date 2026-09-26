@@ -32,8 +32,8 @@ engines:
     description: "MapServer 8.6.5 (public image, GDAL 3.12, PROJ 9.7)"
 
   geoserver:
-    image: "docker.osgeo.org/geoserver:2.26.1"
-    description: "GeoServer 2.26.1"
+    image: "docker.osgeo.org/geoserver:3.0.1"
+    description: "GeoServer 3.0.1 (Java 21)"
 
   terraserve:
     # The image the public repo's CI publishes on a v* tag, pinned by tag AND digest so a

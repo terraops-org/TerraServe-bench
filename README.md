@@ -224,7 +224,7 @@ engines:
   mapserver:
     image: "camptocamp/mapserver:8.6-gdal3.12"
   geoserver:
-    image: "docker.osgeo.org/geoserver:2.26.1"
+    image: "docker.osgeo.org/geoserver:3.0.1"
   terraserve:
     image: "ghcr.io/terraops-org/terraserve:0.2.0@sha256:..."
 
