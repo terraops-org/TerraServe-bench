@@ -22,7 +22,7 @@ MAPFILE="${REPO_DIR}/config/mapfiles/cascais_wms.map"
 
 # Benchmark parameters (environment overrides, defaults here; config.yaml holds only the pins)
 DURATION=${DURATION:-120} # Measured seconds per engine
-CONC=${CONC:-4}          # Concurrent connections
+CONC=${CONC:-$(nproc)}   # Concurrent connections, default one per host core ("1C")
 WARMUP=${WARMUP:-30}     # Discarded seconds per engine (requests when N is set)
 # N=<requests> measures a fixed request count instead of DURATION
 ENGINES=${ENGINES:-mapserver,ts-nocache,ts-lru,geoserver}

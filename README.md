@@ -80,7 +80,7 @@ docker compose down && docker compose up -d geoserver postgis && cd benchmarks/r
 **Individual benchmarks:**
 ```bash
 cd benchmarks/render && ./run.sh        # MapServer vs TerraServe vs GeoServer
-cd benchmarks/throughput && ./run.sh    # Sustained load: MapServer vs TerraServe vs GeoServer (120 s per engine, 4 concurrent)
+cd benchmarks/throughput && ./run.sh    # Sustained load: MapServer vs TerraServe vs GeoServer (120 s per engine, one client per core)
 cd benchmarks/vector && ./run.sh        # COS2023 vector WMS: TerraServe vs MapServer vs GeoServer
 ```
 
@@ -141,7 +141,7 @@ Long-running servers under load with varying bboxes (simulates panning).
 
 **Configuration:**
 - Duration: 120 s measured per engine (default), over 600 distinct bboxes
-- Concurrent connections: 4 (default)
+- Concurrent connections: one per host core (default, `nproc`)
 - Warm-up: 30 s of discarded requests per engine before the measured run (default)
 - Engines: MapServer (Apache + mod_fcgid), TerraServe (no cache, and LRU 256) and
   GeoServer (own container, `-Xms512m -Xmx4096m`, GWC off, provisioned over REST)
@@ -170,8 +170,8 @@ bboxes over an all-land interior window.
 - cgroup `anon` memory: base, peak under load, settle
 - `sample_cos_<engine>.png` per engine for a visual parity check
 
-**Load:** by default each engine gets 30 s of warm-up and 120 s of measured load, with 16 clients.
-`DURATION`, `WARMUP` and `CONC` change that; `N=<requests>` measures a fixed request count
+**Load:** by default each engine gets 30 s of warm-up and 120 s of measured load, with one client per
+host core. `DURATION`, `WARMUP` and `CONC` change that; `N=<requests>` measures a fixed request count
 instead, with `WARMUP` then counted in requests too. For the peak load of many users at once:
 
 ```bash
@@ -305,7 +305,7 @@ docker compose down
 All engines run in separate Docker containers without resource limits; the report shows
 what each one took:
 
-- MapServer: no limit; its FastCGI pool is capped at 16 workers in the vector benchmark
+- MapServer: no limit; its FastCGI pool has one worker per client (`CONC`, or `MS_MAX_PROCS`) in both server benchmarks
 - GeoServer: `-Xms1g -Xmx4g` in the compose stack (render), `-Xms512m -Xmx4096m` in the
   vector benchmark's own container; the report prints the JVM options that ran
 - TerraServe: no GC; memory freed immediately after request. This is RUST

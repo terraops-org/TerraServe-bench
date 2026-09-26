@@ -13,7 +13,7 @@ Fairness::
     engine; cgroup `anon` sampled identically (page cache excluded - it's shared read-only data).
 
 Run:  benchmarks/vector/run.sh, or directly python3 benchmarks/vector/cos2023_vector_bench.py
-Env:  DURATION (seconds, default 120) WARMUP (seconds, 30), or N (requests) and then WARMUP in requests; CONC (16) ENGINES (csv of keys; default ts+mapserver)
+Env:  DURATION (seconds, default 120) WARMUP (seconds, 30), or N (requests) and then WARMUP in requests; CONC (host cores) ENGINES (csv of keys; default ts+mapserver)
       TS_IMAGE / MS_IMAGE / GS_IMAGE default to the pins in config.yaml
 """
 import concurrent.futures as cf
@@ -49,7 +49,7 @@ RESULTS_DIR = os.environ.get("RESULTS_DIR") or BENCH
 DURATION = float(os.environ.get("DURATION", "120"))  # measured seconds per engine
 N = int(os.environ.get("N") or 0)                   # set: measure N requests instead, WARMUP in requests
 WARMUP = float(os.environ.get("WARMUP", "30"))      # discarded seconds (or requests with N) per engine
-CONC = int(os.environ.get("CONC", "16"))
+CONC = int(os.environ.get("CONC") or os.cpu_count())  # default one client per host core ("1C")
 WMS_VERSION = "1.3.0"
 WANT = [k for k in os.environ.get("ENGINES", "").split(",") if k]
 
@@ -77,7 +77,7 @@ MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/m
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
 GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "64")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
-MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS", "16")
+MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker per client
 
 # --- profile: central/interior Portugal, all-land so every tile does real render work ---
 EXT = (-100000.0, -140000.0, -20000.0, -60000.0)  # EPSG:3763, 80km x 80km interior

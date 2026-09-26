@@ -18,7 +18,7 @@ GPKG="${GPKG_DIR}/COS2023v1-S2.gpkg"
 DURATION=${DURATION:-120}   # measured seconds per engine
 WARMUP=${WARMUP:-30}        # discarded seconds per engine (requests when N is set)
 # N=<requests> measures a fixed request count instead of DURATION
-CONC=${CONC:-16}
+CONC=${CONC:-$(nproc)}      # one client per host core ("1C")
 ENGINES=${ENGINES:-ts-nocache,ts-wmscache,mapserver,geoserver}
 # Engine images come from config.yaml (one place to bump a version); env overrides win.
 # TerraServe is the pinned public release image here, run as-is (fonts baked in).
