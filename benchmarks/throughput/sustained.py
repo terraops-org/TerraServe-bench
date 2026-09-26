@@ -13,6 +13,7 @@ Pillow is present) a PNG plot. Run on the host via benchmarks/throughput/run.sh,
 """
 import atexit
 import base64
+import http.client
 import json
 import multiprocessing as mp
 import os
@@ -22,6 +23,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 # Repo root is two levels up: benchmarks/throughput/sustained.py -> repo.
@@ -183,10 +185,31 @@ def wait_ready(name, cid, target):
     return False
 
 
+# One keep-alive connection per client process, as a browser keeps one: a new connection per
+# request costs the engine a TCP setup each time, and at a few hundred req/s the client runs out
+# of local ports (TIME_WAIT holds each one for 60 s).
+_CONN = None
+
+
+def fetch(u):
+    global _CONN
+    parts = urllib.parse.urlsplit(u)
+    for retry in (False, True):  # a server may drop an idle keep-alive connection: retry once on a new one
+        if _CONN is None:
+            _CONN = http.client.HTTPConnection(parts.hostname, parts.port, timeout=60)
+        try:
+            _CONN.request("GET", f"{parts.path}?{parts.query}")
+            return _CONN.getresponse().read()
+        except (http.client.HTTPException, OSError):
+            _CONN.close()
+            _CONN = None
+            if retry:
+                raise
+
+
 def one(target, i):
     try:
-        with urllib.request.urlopen(url(target, i), timeout=60) as r:
-            return is_png(r.read())
+        return is_png(fetch(url(target, i)))
     except Exception:
         return False
 

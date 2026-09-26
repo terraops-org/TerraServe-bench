@@ -16,12 +16,14 @@ Run:  benchmarks/vector/run.sh, or directly python3 benchmarks/vector/cos2023_ve
 Env:  DURATION (seconds, default 120) WARMUP (seconds, 30), or N (requests) and then WARMUP in requests; CONC (host cores) ENGINES (csv of keys; default ts+mapserver)
       TS_IMAGE / MS_IMAGE / GS_IMAGE default to the pins in config.yaml
 """
+import http.client
 import multiprocessing as mp
 import os
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 # Self-locating: benchmarks/vector/this_file.py -> repo root.
@@ -219,11 +221,32 @@ def wait_ready(engine, cid, timeout_s=240):
     return False
 
 
+# One keep-alive connection per client process, as a browser keeps one: a new connection per
+# request costs the engine a TCP setup each time, and at a few hundred req/s the client runs out
+# of local ports (TIME_WAIT holds each one for 60 s).
+_CONN = None
+
+
+def fetch(u):
+    global _CONN
+    parts = urllib.parse.urlsplit(u)
+    for retry in (False, True):  # a server may drop an idle keep-alive connection: retry once on a new one
+        if _CONN is None:
+            _CONN = http.client.HTTPConnection(parts.hostname, parts.port, timeout=120)
+        try:
+            _CONN.request("GET", f"{parts.path}?{parts.query}")
+            return _CONN.getresponse().read()
+        except (http.client.HTTPException, OSError):
+            _CONN.close()
+            _CONN = None
+            if retry:
+                raise
+
+
 def one(engine, i):
     t = time.time()
     try:
-        with urllib.request.urlopen(url(engine, i), timeout=120) as r:
-            ok = is_png(r.read())
+        ok = is_png(fetch(url(engine, i)))
     except Exception:
         ok = False
     return ok, (time.time() - t) * 1000.0
