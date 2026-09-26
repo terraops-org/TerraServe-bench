@@ -16,7 +16,7 @@ Run:  benchmarks/vector/run.sh, or directly python3 benchmarks/vector/cos2023_ve
 Env:  DURATION (seconds, default 120) WARMUP (seconds, 30), or N (requests) and then WARMUP in requests; CONC (host cores) ENGINES (csv of keys; default ts+mapserver)
       TS_IMAGE / MS_IMAGE / GS_IMAGE default to the pins in config.yaml
 """
-import concurrent.futures as cf
+import multiprocessing as mp
 import os
 import subprocess
 import sys
@@ -229,20 +229,27 @@ def one(engine, i):
     return ok, (time.time() - t) * 1000.0
 
 
+_LOAD = None
+
+
+def client(w):
+    engine, amount, deadline = _LOAD
+    out, i = [], w
+    while (i < amount) if N else (time.time() < deadline):
+        out.append(one(engine, i))
+        i += CONC
+    return out
+
+
 def load(engine, amount):
-    """CONC workers request back to back; worker w walks bboxes w, w+CONC, ... With N set, amount
-    is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP)."""
-    deadline = time.time() + amount
-
-    def worker(w):
-        out, i = [], w
-        while (i < amount) if N else (time.time() < deadline):
-            out.append(one(engine, i))
-            i += CONC
-        return out
-
-    with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-        res = [r for rs in ex.map(worker, range(CONC)) for r in rs]
+    """CONC client processes request back to back; client w walks bboxes w, w+CONC, ... With N set,
+    amount is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP). Processes, not
+    threads: one Python process runs out of CPU (GIL) at a few thousand req/s, before a fast engine
+    does. Forked, so the clients inherit the target from _LOAD without pickling it."""
+    global _LOAD
+    _LOAD = (engine, amount, time.time() + amount)
+    with mp.get_context("fork").Pool(CONC) as pool:
+        res = [r for rs in pool.map(client, range(CONC)) for r in rs]
     return sum(ok for ok, _ in res), [ms for _, ms in res]
 
 

@@ -13,8 +13,8 @@ Pillow is present) a PNG plot. Run on the host via benchmarks/throughput/run.sh,
 """
 import atexit
 import base64
-import concurrent.futures as cf
 import json
+import multiprocessing as mp
 import os
 import shutil
 import subprocess
@@ -191,20 +191,27 @@ def one(target, i):
         return False
 
 
+_LOAD = None
+
+
+def client(w):
+    target, amount, deadline = _LOAD
+    out, i = [], w
+    while (i < amount) if N else (time.time() < deadline):
+        out.append(one(target, i))
+        i += CONC
+    return out
+
+
 def load(target, amount):
-    """CONC workers request back to back; worker w walks bboxes w, w+CONC, ... With N set, amount
-    is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP)."""
-    deadline = time.time() + amount
-
-    def worker(w):
-        out, i = [], w
-        while (i < amount) if N else (time.time() < deadline):
-            out.append(one(target, i))
-            i += CONC
-        return out
-
-    with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-        return [ok for rs in ex.map(worker, range(CONC)) for ok in rs]
+    """CONC client processes request back to back; client w walks bboxes w, w+CONC, ... With N set,
+    amount is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP). Processes, not
+    threads: one Python process runs out of CPU (GIL) at a few thousand req/s, before a fast engine
+    does. Forked, so the clients inherit the target from _LOAD without pickling it."""
+    global _LOAD
+    _LOAD = (target, amount, time.time() + amount)
+    with mp.get_context("fork").Pool(CONC) as pool:
+        return [ok for rs in pool.map(client, range(CONC)) for ok in rs]
 
 
 def run_server(name, cid, target):
