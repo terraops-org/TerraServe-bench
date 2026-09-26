@@ -306,7 +306,8 @@ docker compose down
 All engines run in separate Docker containers without resource limits; the report shows
 what each one took:
 
-- MapServer: no limit; its FastCGI pool has one worker per client (`CONC`, or `MS_MAX_PROCS`) in both server benchmarks
+- MapServer: no limit; its FastCGI pool has one worker per client (`CONC`, or `MS_MAX_PROCS`) in both server benchmarks,
+  and each worker is recycled after 10000 requests (`MS_MAX_REQUESTS`; the image default is 1000)
 - GeoServer: `-Xms1g -Xmx4g` in the compose stack (render), `-Xms512m -Xmx4096m` in the
   vector benchmark's own container; the report prints the JVM options that ran
 - TerraServe: no GC; memory freed immediately after request. This is RUST

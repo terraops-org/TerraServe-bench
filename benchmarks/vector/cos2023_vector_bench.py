@@ -81,6 +81,10 @@ GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo
 GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "64")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
 MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker per client
+# The image recycles a mapserv worker every 1000 requests. Past a few hundred req/s, mod_fcgid's
+# spawn limit (FcgidSpawnScoreUpLimit) then stops replacing them and the pool shrinks under load,
+# so the benchmark would measure the respawn rate. Some recycling stays, for the leaks it guards.
+MS_MAX_REQUESTS = os.environ.get("MS_MAX_REQUESTS", "10000")
 
 # --- profile: central/interior Portugal, all-land so every tile does real render work ---
 EXT = (-100000.0, -140000.0, -20000.0, -60000.0)  # EPSG:3763, 80km x 80km interior
@@ -132,7 +136,8 @@ def engines():
         Engine("mapserver", "MapServer-8.6-FastCGI", 19092, "cos2023", "/",
                ["-p", "19092:80", "-v", f"{MAPFILE}:/etc/mapserver/cos2023.map:ro",
                 "-v", f"{GPKG}:/data/COS2023v1-S2.gpkg:ro", "-e", f"MAX_PROCESSES={MS_MAX_PROCS}",
-                "-e", "MIN_PROCESSES=2", "-e", f"GDAL_CACHEMAX={GDAL_CACHEMAX}", MS_IMAGE],
+                "-e", "MIN_PROCESSES=2", "-e", f"MAX_REQUESTS_PER_PROCESS={MS_MAX_REQUESTS}",
+                "-e", f"GDAL_CACHEMAX={GDAL_CACHEMAX}", MS_IMAGE],
                f"apache/mod_fcgid: <= {MS_MAX_PROCS} persistent mapserv workers; GDAL cache {GDAL_CACHEMAX}MB/worker",
                extra_query="map=/etc/mapserver/cos2023.map"),
         Engine("geoserver", "GeoServer-2.26", 19100, "bench:cos2023v1", "/geoserver/wms",
@@ -386,7 +391,7 @@ def write_results(results, failed=(), skipped=()):
                "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "size": SIZE, "distinct_bboxes": len(BB), "unique_requests": True,
                           "crs": CRS, "wms": WMS_VERSION, "gpkg": "COS2023v1-S2.gpkg",
-                          "gdal_cachemax_mb": int(GDAL_CACHEMAX), "ms_max_procs": int(MS_MAX_PROCS), "gs_xmx": GS_XMX},
+                          "gdal_cachemax_mb": int(GDAL_CACHEMAX), "ms_max_procs": int(MS_MAX_PROCS), "ms_max_requests": int(MS_MAX_REQUESTS), "gs_xmx": GS_XMX},
                "engines": engines, "failed": list(failed), "skipped": list(skipped)},
               open(os.path.join(RESULTS_DIR, "vector.json"), "w"), indent=2)
 
