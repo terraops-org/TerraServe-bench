@@ -78,7 +78,7 @@ def pinned_image(engine, default):
 TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.2.0")
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
-GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "64")
+GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
 MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker per client
 # The image recycles a mapserv worker every 1000 requests. Past a few hundred req/s, mod_fcgid's

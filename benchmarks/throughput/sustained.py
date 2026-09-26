@@ -86,6 +86,10 @@ MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker
 # spawn limit (FcgidSpawnScoreUpLimit) then stops replacing them and the pool shrinks under load,
 # so the benchmark would measure the respawn rate. Some recycling stays, for the leaks it guards.
 MS_MAX_REQUESTS = os.environ.get("MS_MAX_REQUESTS", "10000")
+# GDAL's block cache per mapserv worker, as in the vector benchmark. At the image default the
+# workers keep the whole decoded test area in memory and stop decompressing the COG, which a
+# server with many layers cannot do.
+GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
 # Discarded seconds of load before the measured DURATION, for EVERY engine, so a JVM's cold JIT and a
 # FastCGI pool still growing are not what "sustained" measures (cold starts are the render
 # benchmark's subject).
@@ -377,7 +381,8 @@ if "mapserver" in ENGINES:
     cids["mapserver"] = docker_run(["-v", f"{COG}:/data/cog.tif:ro",
                                     "-v", f"{BENCH}/cascais_wms.map:{MS_MAPFILE}:ro",
                                     "-p", "18090:80", "-e", f"MAX_PROCESSES={MS_MAX_PROCS}",
-                                    "-e", "MIN_PROCESSES=2", "-e", f"MAX_REQUESTS_PER_PROCESS={MS_MAX_REQUESTS}", MS_IMAGE])
+                                    "-e", "MIN_PROCESSES=2", "-e", f"MAX_REQUESTS_PER_PROCESS={MS_MAX_REQUESTS}",
+                                    "-e", f"GDAL_CACHEMAX={GDAL_CACHEMAX}", MS_IMAGE])
 # GeoServer in its own container, like the vector benchmark: the COG lands where the
 # render benchmark's REST script expects it (/data/cogs/<file>), heap as GS_XMX, GWC off.
 if "geoserver" in ENGINES:
@@ -440,7 +445,7 @@ for r in results:
     engines.append(e)
 json.dump({"benchmark": "throughput",
            "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "ms_max_procs": int(MS_MAX_PROCS), "ms_max_requests": int(MS_MAX_REQUESTS), "size": 256, "distinct_bboxes": len(BB), "unique_requests": True,
+           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "ms_max_procs": int(MS_MAX_PROCS), "ms_max_requests": int(MS_MAX_REQUESTS), "gdal_cachemax_mb": int(GDAL_CACHEMAX), "size": 256, "distinct_bboxes": len(BB), "unique_requests": True,
                       "crs": "EPSG:3763", "cog": os.path.basename(COG), "gs_xmx": GS_XMX},
            "engines": engines, "failed": failed, "skipped": skipped, "plot": "sustained.png"},
           open(f"{RESULTS_DIR}/throughput.json", "w"), indent=2)
