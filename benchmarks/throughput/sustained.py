@@ -53,7 +53,7 @@ def pinned_image(engine, default):
 
 
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
-TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.2.0")
+TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.3.6")
 TS_BIN = os.environ.get("TS_BIN") or None  # a local build instead of the pinned release
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.1")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
