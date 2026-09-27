@@ -80,6 +80,8 @@ MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/m
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
 GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
+GS_JAVA_OPTS = (f"-Xms256m -Xmx{GS_XMX} -XX:G1PeriodicGCInterval=5000 "   # see benchmarks/throughput/sustained.py
+                "-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30")
 MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker per client
 # The image recycles a mapserv worker every 1000 requests. Past a few hundred req/s, mod_fcgid's
 # spawn limit (FcgidSpawnScoreUpLimit) then stops replacing them and the pool shrinks under load,
@@ -142,8 +144,8 @@ def engines():
                extra_query="map=/etc/mapserver/cos2023.map"),
         Engine("geoserver", "GeoServer-2.26", 19100, "bench:cos2023v1", "/geoserver/wms",
                ["-p", "19100:8080", "-v", f"{GPKG}:/data/COS2023v1-S2.gpkg:ro",
-                "-e", f"EXTRA_JAVA_OPTS=-Xms512m -Xmx{GS_XMX}", GS_IMAGE],
-               f"JVM commits heap toward -Xmx={GS_XMX} regardless of per-request use; GWC OFF (dynamic render)",
+                "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE],
+               f"JVM heap grows under load up to -Xmx={GS_XMX}, periodic G1 cycle gives it back when idle; GWC OFF (dynamic render)",
                setup=lambda cid, url: geoserver_setup(url)),
     ]
 

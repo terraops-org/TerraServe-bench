@@ -147,7 +147,7 @@ Long-running servers under load with varying bboxes (simulates panning).
 - Concurrent connections: one per host core (default, `nproc`)
 - Warm-up: 30 s of discarded requests per engine before the measured run (default)
 - Engines: MapServer (Apache + mod_fcgid), TerraServe (no cache, and LRU 256) and
-  GeoServer (own container, `-Xms512m -Xmx4096m`, GWC off, provisioned over REST)
+  GeoServer (own container, `-Xms256m -Xmx4g` with periodic G1 collection, GWC off, provisioned over REST)
 
 Set via environment:
 ```bash
@@ -311,8 +311,9 @@ what each one took:
 - MapServer: no limit; its FastCGI pool has one worker per client (`CONC`, or `MS_MAX_PROCS`) in both server benchmarks,
   and each worker is recycled after 10000 requests (`MS_MAX_REQUESTS`; the image default is 1000)
   and keeps at most 16 MB of GDAL block cache (`GDAL_CACHEMAX`)
-- GeoServer: `-Xms1g -Xmx4g` in the compose stack (render), `-Xms512m -Xmx4096m` in the
-  vector benchmark's own container; the report prints the JVM options that ran
+- GeoServer: `-Xms256m -Xmx4g -XX:G1PeriodicGCInterval=5000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30`
+  in every benchmark: after 5 s without a collection G1 runs a concurrent cycle and gives free heap
+  back to the OS; the report prints the JVM options that ran
 - TerraServe: no GC; memory freed immediately after request. This is RUST
 
 Why anon and not peak RSS: `anon` is memory the process allocated and must free

@@ -29,7 +29,7 @@ services:
     environment:
       GEOSERVER_ADMIN_USER: admin
       GEOSERVER_ADMIN_PASSWORD: geoserver
-      EXTRA_JAVA_OPTS: "-Xms1g -Xmx4g"
+      EXTRA_JAVA_OPTS: "-Xms256m -Xmx4g -XX:G1PeriodicGCInterval=5000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30"
     ports:
       - "8080:8080"
     volumes:

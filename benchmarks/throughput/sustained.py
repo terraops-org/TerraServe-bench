@@ -56,7 +56,11 @@ TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/ter
 TS_BIN = os.environ.get("TS_BIN") or None  # a local build instead of the pinned release
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
-GS_JAVA_OPTS = f"-Xms512m -Xmx{GS_XMX}"          # same shape as the vector benchmark's GeoServer
+# Same as the vector benchmark and the compose stack. When G1 has not collected for 5 s it runs a
+# concurrent cycle and shrinks the heap to 30% free, so an idle JVM gives memory back; under load
+# the young collections come far more often and it never fires.
+GS_JAVA_OPTS = (f"-Xms256m -Xmx{GS_XMX} -XX:G1PeriodicGCInterval=5000 "
+                "-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30")
 # Where the JSON record, the plot and the raw series go. run.sh always sets it; a bare
 # python3 sustained.py falls back to /tmp so it still works.
 RESULTS_DIR = os.environ.get("RESULTS_DIR") or "/tmp"
