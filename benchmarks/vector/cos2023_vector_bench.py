@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Cross-engine VECTOR benchmark: COS2023 (842,413 MultiPolygons, EPSG:3763) served as WMS
 GetMap by TerraServe vs MapServer 8.6 vs GeoServer - the SAME GeoPackage, the SAME classification
-(TerraServe + GeoServer read cos2023.sld directly; MapServer reads a mapfile generated from it by
-cos2023_sld_to_mapfile.py). Fresh matrix for the landing page.
+(TerraServe reads cos2023.sld directly; MapServer reads a mapfile generated from it by
+cos2023_sld_to_mapfile.py; GeoServer reads cos2023-recode.sld, the same classes as one Recode, since
+it tests every Rule per feature where MapServer stops at the first matching CLASS). Fresh matrix for
+the landing page.
 
 Fairness::
   - MapServer = camptocamp apache/mod_fcgid, N persistent `mapserv` workers (NOT single mapscript),
@@ -38,6 +40,7 @@ from cgroup_mem import SETTLE_S, find_cgroup, read_anon, settle_curve  # noqa: E
 # if ./data holds symlinks (a local dev checkout) point this at the real directory.
 GPKG_DIR = os.environ.get("GPKG_DIR", os.path.join(REPO, "data"))
 SLD = os.environ.get("SLD", os.path.join(REPO, "config", "styles", "cos2023.sld"))
+GS_SLD = os.environ.get("GS_SLD", os.path.join(REPO, "config", "styles", "cos2023-recode.sld"))
 MAPFILE = os.environ.get("MAPFILE", os.path.join(REPO, "config", "mapfiles", "cos2023.map"))
 # Mount the FILE, resolved, never the directory. data/ on a developer box often holds
 # symlinks into another checkout, and a symlink inside a bind-mounted directory dangles
@@ -151,9 +154,9 @@ def engines():
 
 
 def geoserver_setup(base_url):
-    """Provision workspace + GPKG store + layer + the cos2023 SLD via the REST API."""
+    """Provision workspace + GPKG store + layer + the cos2023 Recode SLD via the REST API."""
     rest = base_url.rsplit("/wms", 1)[0] + "/rest"
-    r = subprocess.run(["bash", f"{BENCH}/geoserver_cos2023_setup.sh", rest, SLD],
+    r = subprocess.run(["bash", f"{BENCH}/geoserver_cos2023_setup.sh", rest, GS_SLD],
                        capture_output=True, text=True)
     if r.returncode != 0:
         print(f"  geoserver setup FAILED:\n{r.stdout[-2000:]}\n{r.stderr[-1000:]}")

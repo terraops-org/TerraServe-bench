@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Vector benchmark: COS2023 land cover served as WMS GetMap by
 # TerraServe vs MapServer vs GeoServer, from the SAME GeoPackage with the SAME
-# classification (all three read cos2023.sld; MapServer reads a mapfile generated
-# from it).
+# classification (TerraServe reads cos2023.sld, MapServer a mapfile generated
+# from it, GeoServer cos2023-recode.sld, the same classes as one Recode).
 
 set -euo pipefail
 
