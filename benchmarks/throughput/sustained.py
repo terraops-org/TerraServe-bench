@@ -17,6 +17,7 @@ import http.client
 import json
 import multiprocessing as mp
 import os
+import platform
 import random
 import shutil
 import subprocess
@@ -56,6 +57,15 @@ TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/ter
 TS_BIN = os.environ.get("TS_BIN") or None  # a local build instead of the pinned release
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
+# The gs-libdeflate community module inflates the COG tiles with libdeflate instead of zlib.
+# Release jars matching GS_IMAGE's GeoServer and imageio-ext versions; libdeflate-java-core
+# ships a native library for linux x86_64 only.
+OSGEO_REPO = "https://repo.osgeo.org/repository/release"
+GS_LIBDEFLATE_JARS = [
+    f"{OSGEO_REPO}/org/geoserver/community/gs-libdeflate/2.26.1/gs-libdeflate-2.26.1.jar",
+    f"{OSGEO_REPO}/it/geosolutions/imageio-ext/imageio-ext-libdeflate/1.4.13/imageio-ext-libdeflate-1.4.13.jar",
+    f"{OSGEO_REPO}/me/steinborn/libdeflate-java-core/0.1.0-beta/libdeflate-java-core-0.1.0-beta.jar"]
+GS_LIB = "/usr/local/tomcat/webapps/geoserver/WEB-INF/lib"
 # Same as the vector benchmark and the compose stack. When G1 has not collected for 5 s it runs a
 # concurrent cycle and shrinks the heap to 30% free, so an idle JVM gives memory back; under load
 # the young collections come far more often and it never fires.
@@ -98,11 +108,15 @@ GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
 # FastCGI pool still growing are not what "sustained" measures (cold starts are the render
 # benchmark's subject).
 WARMUP = float(os.environ.get("WARMUP", "30"))
-ENGINE_KEYS = ["mapserver", "ts-nocache", "ts-lru", "geoserver"]
-ENGINES = [k for k in os.environ.get("ENGINES", ",".join(ENGINE_KEYS)).split(",") if k]
+ENGINE_KEYS = ["mapserver", "ts-nocache", "ts-lru", "geoserver", "gs-libdeflate"]
+X86_64 = platform.machine() in ("x86_64", "AMD64")
+_default = [k for k in ENGINE_KEYS if X86_64 or k != "gs-libdeflate"]
+ENGINES = [k for k in os.environ.get("ENGINES", ",".join(_default)).split(",") if k]
 _unknown = [k for k in ENGINES if k not in ENGINE_KEYS]
 if _unknown:
     sys.exit(f"[ERROR] unknown engine key(s): {', '.join(_unknown)}. Known: {', '.join(ENGINE_KEYS)}")
+if "gs-libdeflate" in ENGINES and not X86_64:
+    sys.exit(f"[ERROR] gs-libdeflate needs linux x86_64, this host is {platform.machine()}")
 EXT = (-116201.25, -108717.25, -109034.0, -103918.25)  # EPSG:3763
 WIN = 300.0
 
@@ -362,7 +376,7 @@ ms_ver = " ".join(subprocess.run(["docker", "run", "--rm", "--entrypoint", "map2
                                  capture_output=True, text=True).stdout.split()[:3])
 print(f"TerraServe: {ts_ver} ({ts_label})\nMapServer:  {ms_ver} ({MS_IMAGE})")
 
-if "geoserver" in ENGINES:
+if "geoserver" in ENGINES or "gs-libdeflate" in ENGINES:
     print(f"GeoServer:  {GS_IMAGE} ({GS_JAVA_OPTS}, GWC off)")
 
 mounts = ["-v", f"{COG}:/data/cog.tif:ro", "-v", f"{BENCH}:/work"]
@@ -392,6 +406,19 @@ if "mapserver" in ENGINES:
 if "geoserver" in ENGINES:
     cids["geoserver"] = docker_run(["-v", f"{COG}:/data/cogs/{os.path.basename(COG)}:ro",
                                     "-p", "18091:8080", "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE])
+# The same GeoServer with the gs-libdeflate jars added, downloaded once into data/.
+if "gs-libdeflate" in ENGINES:
+    jar_dir = f"{REPO}/data/gs-libdeflate"
+    os.makedirs(jar_dir, exist_ok=True)
+    jar_mounts = []
+    for jar_url in GS_LIBDEFLATE_JARS:
+        jar = f"{jar_dir}/{os.path.basename(jar_url)}"
+        if not os.path.exists(jar):
+            print(f"downloading {jar_url}")
+            urllib.request.urlretrieve(jar_url, jar)
+        jar_mounts += ["-v", f"{jar}:{GS_LIB}/{os.path.basename(jar)}:ro"]
+    cids["gs-libdeflate"] = docker_run(["-v", f"{COG}:/data/cogs/{os.path.basename(COG)}:ro"] + jar_mounts
+                                       + ["-p", "18092:8080", "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE])
 print("  ".join(f"{k} {v[:12]}" for k, v in cids.items()) + f"  {f'N={N}' if N else f'duration={DURATION:g}s'} warmup={WARMUP:g} conc={CONC} distinct_bboxes={len(BB)}")
 res, gs_ver = {}, None
 try:
@@ -407,6 +434,11 @@ try:
         if gs_ver:
             res["geoserver"] = run_server("GeoServer", cids["geoserver"],
                                           ("http://localhost:18091/geoserver/ows", "benchmarks:cascais_rgb_cog"))
+    if "gs-libdeflate" in cids:
+        gs_ver = geoserver_setup(cids["gs-libdeflate"], "http://localhost:18092/geoserver") or gs_ver
+        if gs_ver:
+            res["gs-libdeflate"] = run_server("GeoServer-libdeflate", cids["gs-libdeflate"],
+                                              ("http://localhost:18092/geoserver/ows", "benchmarks:cascais_rgb_cog"))
 finally:
     if cids:
         subprocess.run(["docker", "rm", "-f"] + list(cids.values()), capture_output=True)
@@ -428,7 +460,8 @@ json.dump({r["name"]: r["series"] for r in results}, open(f"{RESULTS_DIR}/sustai
 IDENT = {"MapServer": ("mapserver", "mapserver", None),
          "TerraServe-nocache": ("ts-nocache", "terraserve", "nocache"),
          "TerraServe-LRU": ("ts-lru", "terraserve", "lru"),
-         "GeoServer": ("geoserver", "geoserver", None)}
+         "GeoServer": ("geoserver", "geoserver", None),
+         "GeoServer-libdeflate": ("gs-libdeflate", "geoserver", "libdeflate")}
 VERSION = {"mapserver": ms_ver, "terraserve": ts_ver, "geoserver": gs_ver}
 IMAGE = {"mapserver": MS_IMAGE, "terraserve": (f"local:{TS_BIN}" if TS_BIN else TS_IMAGE), "geoserver": GS_IMAGE}
 engines = []
@@ -473,7 +506,8 @@ try:
         d.line([(pad, yy), (W - pad, yy)], fill=(225, 225, 225))
         d.text((6, yy - 6), f"{yv:5.0f}MB", fill=(90, 90, 90))
     colors = {"MapServer": (206, 45, 45), "TerraServe-nocache": (40, 160, 90),
-              "TerraServe-LRU": (30, 120, 205), "GeoServer": (120, 80, 200)}
+              "TerraServe-LRU": (30, 120, 205), "GeoServer": (120, 80, 200),
+              "GeoServer-libdeflate": (200, 130, 30)}
     for r in results:
         c = colors.get(r["name"], (0, 0, 0))
         pts = [(X(t), Y(mb(v))) for t, v in r["series"]]

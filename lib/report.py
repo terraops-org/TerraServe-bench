@@ -249,9 +249,10 @@ def _summary_cells(run, fam):
     if prim:
         m = prim[0]["metrics"]
         cell = f"{fmt(m.get('req_s'))} req/s, settle at 30 s {fmt(m.get('settle_30s_mb'), ' MB')}"
-        lru = by_family(tp, fam, "lru")
-        if lru and lru[0] is not prim[0]:
-            cell += f" (LRU: {fmt(lru[0]['metrics'].get('req_s'))} req/s)"
+        for variant, label in (("lru", "LRU"), ("libdeflate", "libdeflate")):
+            extra = by_family(tp, fam, variant)
+            if extra and extra[0] is not prim[0]:
+                cell += f" ({label}: {fmt(extra[0]['metrics'].get('req_s'))} req/s)"
         tp_cell = cell + _failed_note(run, "throughput", fam)
     else:
         tp_cell = _absent_cell(run, "throughput", fam)

@@ -152,7 +152,7 @@ Long-running servers under load with varying bboxes (simulates panning).
 Set via environment:
 ```bash
 CONC=8 DURATION=300 WARMUP=60 ./run.sh
-ENGINES=mapserver,ts-nocache ./run.sh     # keys: mapserver ts-nocache ts-lru geoserver
+ENGINES=mapserver,ts-nocache ./run.sh     # keys: mapserver ts-nocache ts-lru geoserver gs-libdeflate
 ```
 
 ### Vector (`benchmarks/vector/`)

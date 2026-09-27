@@ -107,6 +107,21 @@ class Markdown(unittest.TestCase):
             self.assertIn("3772", md)               # but present in the detailed vector table
             self.assertIn("cache-hit", md)
 
+    def test_libdeflate_row_is_shown_next_to_geoserver(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            tp = json.load(open(os.path.join(d, "throughput.json")))
+            for key, variant, req_s in (("geoserver", None, 412.0), ("gs-libdeflate", "libdeflate", 505.5)):
+                e = {"key": key, "family": "geoserver", "shape": "warm-http", "version": "GeoServer 2.26.1",
+                     "metrics": {"req_s": req_s, "settle_30s_mb": 900.0}}
+                if variant:
+                    e["variant"] = variant
+                tp["engines"].append(e)
+            write(d, "throughput.json", tp)
+            md = report.render_markdown(report.load(d))
+            row = [l for l in md.splitlines() if l.startswith("| GeoServer 2.26.1 |")][0]
+            self.assertIn("| 412.0 req/s, settle at 30 s 900.0 MB (libdeflate: 505.5 req/s) |", row)
+
     def test_missing_benchmark_says_not_run(self):
         with tempfile.TemporaryDirectory() as d:
             make_run(d, throughput=False)

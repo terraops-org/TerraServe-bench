@@ -25,7 +25,8 @@ DURATION=${DURATION:-120} # Measured seconds per engine
 CONC=${CONC:-$(nproc)}   # Concurrent connections, default one per host core ("1C")
 WARMUP=${WARMUP:-30}     # Discarded seconds per engine (requests when N is set)
 # N=<requests> measures a fixed request count instead of DURATION
-ENGINES=${ENGINES:-mapserver,ts-nocache,ts-lru,geoserver}
+# gs-libdeflate ships a native library for linux x86_64 only
+ENGINES=${ENGINES:-mapserver,ts-nocache,ts-lru,geoserver$([ "$(uname -m)" = x86_64 ] && echo ,gs-libdeflate)}
 # Engine images come from config.yaml (one place to bump a version); env overrides win.
 # TS_BIN=/path/to/terraserve swaps a local build in for the pinned release (developer use).
 source "${LIB_DIR}/config.sh"
