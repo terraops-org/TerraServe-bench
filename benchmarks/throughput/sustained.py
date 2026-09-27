@@ -31,7 +31,7 @@ import urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 COG = os.environ.get("COG", f"{REPO}/data/cascais.cog.deflate.tif")
 sys.path.insert(0, os.path.join(REPO, "lib"))
-from cgroup_mem import find_cgroup, read_anon  # noqa: E402
+from cgroup_mem import SETTLE_S, find_cgroup, read_anon, settle_curve  # noqa: E402
 
 def pinned_image(engine, default):
     """Image for <engine> from config.yaml, so a version is bumped in ONE place. Stdlib only:
@@ -271,8 +271,7 @@ def run_server(name, cid, target):
     res = load(target, N or DURATION, first=MEASURED)
     ok, n, nbytes = sum(1 for size in res if size), len(res), sum(res)
     dur = time.time() - t0
-    time.sleep(2)  # settle: does it give memory back?
-    settle = cg_anon(cid)
+    settle = settle_curve(lambda: cg_anon(cid))
     stop.set()
     s.join()
     peak = max((v for _, v in series), default=0)
@@ -407,10 +406,10 @@ results = [res[k] for k in ENGINE_KEYS if res.get(k)]
 failed = [k for k in ENGINES if not res.get(k)]
 skipped = [k for k in ENGINE_KEYS if k not in ENGINES]
 mx = max((r["peak"] for r in results), default=1)
-print(f"\n{'engine':20s} {'ok/N':>10s} {'req/s':>7s} {'baseline':>9s} {'peak':>8s} {'settle':>8s}  anon under load")
+print(f"\n{'engine':20s} {'ok/N':>10s} {'req/s':>7s} {'baseline':>9s} {'peak':>8s} {'settle 2/10/30 s':>22s}  anon under load")
 for r in results:
     print(f"{r['name']:20s} {r['ok']:>5d}/{r['n']:<6d} {r['ok']/r['dur']:>7.1f} "
-          f"{mb(r['baseline']):>7.1f}MB {mb(r['peak']):>6.1f}MB {mb(r['settle']):>6.1f}MB  {spark(r['series'], mx)}")
+          f"{mb(r['baseline']):>7.1f}MB {mb(r['peak']):>6.1f}MB {'/'.join(f'{mb(v):.0f}' for v in r['settle']):>20s}MB  {spark(r['series'], mx)}")
 
 import datetime
 import json
@@ -431,7 +430,7 @@ for r in results:
          "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": r["n"], "dur_s": round(r["dur"], 1),
                      "avg_kb": round(r["nbytes"] / r["ok"] / 1024, 1),
                      "baseline_mb": round(mb(r["baseline"]), 1), "peak_mb": round(mb(r["peak"]), 1),
-                     "settle_mb": round(mb(r["settle"]), 1)}}
+                     **{f"settle_{s}s_mb": round(mb(v), 1) for s, v in zip(SETTLE_S, r["settle"])}}}
     if variant:
         e["variant"] = variant
     if TS_BIN and fam == "terraserve":
@@ -477,7 +476,7 @@ try:
     for r in results:
         c = colors.get(r["name"], (0, 0, 0))
         d.rectangle([(W - 350, ly), (W - 334, ly + 12)], fill=c)
-        d.text((W - 328, ly), f"{r['name']}: peak {mb(r['peak']):.0f}MB  settle {mb(r['settle']):.0f}MB", fill=c)
+        d.text((W - 328, ly), f"{r['name']}: peak {mb(r['peak']):.0f}MB  settle at 30 s {mb(r['settle'][-1]):.0f}MB", fill=c)
         ly += 20
     d.text((W - pad - 70, H - pad + 8), f"{tmax:.0f}s", fill=(90, 90, 90))
     img.save(f"{RESULTS_DIR}/sustained.png")

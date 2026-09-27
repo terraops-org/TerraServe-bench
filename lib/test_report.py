@@ -48,7 +48,8 @@ def make_run(d, render=True, throughput=True, vector=True, ts_median=28.8, ts_re
                 {"key": "mapserver", "label": "MapServer", "family": "mapserver", "shape": "warm-http", "version": "MapServer version 8.6.5",
                  "metrics": {"req_s": 93.9, "ok": 100, "n": 100, "baseline_mb": 30.9, "peak_mb": 201.6, "settle_mb": 201.6}},
                 {"key": "ts-nocache", "label": "TerraServe-nocache", "family": "terraserve", "variant": "nocache", "shape": "warm-http", "version": "terraserve 0.2.0",
-                 "metrics": {"req_s": ts_req, "ok": 100, "n": 100, "baseline_mb": 280.4, "peak_mb": 338.7, "settle_mb": 231.6}},
+                 "metrics": {"req_s": ts_req, "ok": 100, "n": 100, "baseline_mb": 280.4, "peak_mb": 338.7,
+                             "settle_2s_mb": 300.2, "settle_10s_mb": 250.0, "settle_30s_mb": 231.6}},
                 {"key": "ts-lru", "label": "TerraServe-LRU", "family": "terraserve", "variant": "lru", "shape": "warm-http", "version": "terraserve 0.2.0",
                  "metrics": {"req_s": 373.8, "ok": 100, "n": 100, "baseline_mb": 276.8, "peak_mb": 372.0, "settle_mb": 291.2}},
             ]})
@@ -187,6 +188,14 @@ class Markdown(unittest.TestCase):
             md = report.render_markdown(report.load(d))
             self.assertIn("| TerraServe-nocache | 154.3 | 126.0 KB | 100/100 |", md)
             self.assertIn("| MapServer | 93.9 | ? | 100/100 |", md)   # older run, no size recorded
+
+    def test_settle_curve_is_shown(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("| 280.4 MB | 338.7 MB | 300.2 MB | 250.0 MB | 231.6 MB |", md)
+            self.assertIn("| 30.9 MB | 201.6 MB | 201.6 MB | ? | ? |", md)   # older run, 2 s only
+            self.assertIn("req/s, settle at 30 s 231.6 MB", md)
 
     def test_engine_left_out_with_engines_says_not_selected(self):
         with tempfile.TemporaryDirectory() as d:

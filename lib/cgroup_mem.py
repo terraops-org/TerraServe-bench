@@ -84,6 +84,21 @@ def read_anon(stat_path):
     return None
 
 
+# Seconds after the load stops at which the load benchmarks read anon again. One early
+# reading only tells how fast an engine frees memory; the curve tells what it keeps.
+SETTLE_S = (2, 10, 30)
+
+
+def settle_curve(read):
+    """anon read at each of SETTLE_S seconds after the call, as a list."""
+    t0 = time.monotonic()
+    out = []
+    for s in SETTLE_S:
+        time.sleep(max(0.0, t0 + s - time.monotonic()))
+        out.append(read())
+    return out
+
+
 class AnonSampler:
     """Poll cgroup anon in a background thread; keep baseline, peak and delta."""
 

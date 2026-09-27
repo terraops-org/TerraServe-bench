@@ -31,7 +31,7 @@ import urllib.request
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BENCH = os.path.join(REPO, "benchmarks", "vector")
 sys.path.insert(0, os.path.join(REPO, "lib"))
-from cgroup_mem import find_cgroup, read_anon  # noqa: E402
+from cgroup_mem import SETTLE_S, find_cgroup, read_anon, settle_curve  # noqa: E402
 
 # GPKG_DIR is mounted into the containers as /data, so it must be a directory holding
 # the REAL GeoPackage. Docker does not follow a host symlink inside a bind mount, so
@@ -340,8 +340,7 @@ def run_engine(engine):
         t0 = time.time()
         ok, lat, nbytes = load(engine, N or DURATION, first=MEASURED)
         dur = time.time() - t0
-        time.sleep(2)
-        settle = cg_anon(cid)
+        settle = settle_curve(lambda: cg_anon(cid))
         stop.set()
         s.join()
         try:
@@ -385,7 +384,7 @@ def write_results(results, failed=(), skipped=()):
                            "p50_ms": round(pct(r["lat"], 50)), "p95_ms": round(pct(r["lat"], 95)),
                            "p99_ms": round(pct(r["lat"], 99)), "avg_kb": round(r["nbytes"] / r["ok"] / 1024, 1),
                            "base_mb": round(mb(r["baseline"])), "peak_mb": round(mb(r["peak"])),
-                           "settle_mb": round(mb(r["settle"]))}}
+                           **{f"settle_{s}s_mb": round(mb(v)) for s, v in zip(SETTLE_S, r["settle"])}}}
         if e.key in VARIANT:
             rec["variant"] = VARIANT[e.key]
         engines.append(rec)
@@ -431,12 +430,12 @@ def main():
         else:
             failed.append(e.key)
     print(f"\n{'engine':24s} {'ok/N':>10s} {'req/s':>8s} {'p50ms':>8s} {'p95ms':>8s} "
-          f"{'base':>7s} {'peak':>7s} {'settle':>7s}")
+          f"{'base':>7s} {'peak':>7s} {'settle 2/10/30 s':>18s}")
     for r in results:
         e = r["engine"]
         print(f"{e.label:24s} {r['ok']:>5d}/{len(r['lat']):<6d} {r['ok']/r['dur']:>8.1f} "
               f"{pct(r['lat'],50):>8.0f} {pct(r['lat'],95):>8.0f} "
-              f"{mb(r['baseline']):>6.0f}M {mb(r['peak']):>6.0f}M {mb(r['settle']):>6.0f}M")
+              f"{mb(r['baseline']):>6.0f}M {mb(r['peak']):>6.0f}M {'/'.join(f'{mb(v):.0f}' for v in r['settle']):>17s}M")
     print("\nmemory model (why `anon` differs per engine):")
     for r in results:
         print(f"  {r['engine'].label:24s} {r['engine'].mem_note}")
