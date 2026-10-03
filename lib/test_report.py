@@ -122,6 +122,23 @@ class Markdown(unittest.TestCase):
             self.assertIn("not run", row)
             self.assertNotIn("| ? |", row)
 
+    def test_unreachable_geoserver_is_not_reported_as_not_run(self):
+        """An engine that never answered must not look like one nobody asked for. The render
+        benchmark skips GeoServer when it cannot reach it, and a reader of the report has to
+        be able to tell that apart from a benchmark that was simply not part of the run."""
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            lines = [l for l in open(os.path.join(d, "render.jsonl")) if '"GeoServer"' not in l]
+            open(os.path.join(d, "render.jsonl"), "w").writelines(lines)
+            mp = os.path.join(d, "render.meta.json")
+            m = json.load(open(mp))
+            m["unreachable"] = ["geoserver"]
+            json.dump(m, open(mp, "w"))
+            md = report.render_markdown(report.load(d))
+            row = [l for l in md.splitlines() if l.startswith("| GeoServer") and "warm HTTP" in l][0]
+            self.assertIn("not reachable", row)
+            self.assertNotIn("not run", row)
+
     def test_render_table_has_a_max_column(self):
         with tempfile.TemporaryDirectory() as d:
             make_run(d)
