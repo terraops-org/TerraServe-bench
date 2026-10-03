@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Cross-engine VECTOR benchmark: COS2023 (842,413 MultiPolygons, EPSG:3763) served as WMS
 GetMap by TerraServe vs MapServer 8.6 vs GeoServer - the SAME GeoPackage, the SAME classification
-(TerraServe + GeoServer read cos2023.sld directly; MapServer reads a mapfile generated from it by
-cos2023_sld_to_mapfile.py). Fresh matrix for the landing page.
+(TerraServe reads cos2023.sld directly; MapServer reads a mapfile generated from it by
+cos2023_sld_to_mapfile.py; GeoServer reads cos2023-recode.sld, the same classes as one Recode, since
+it tests every Rule per feature where MapServer stops at the first matching CLASS). Fresh matrix for
+the landing page.
 
 Fairness::
   - MapServer = camptocamp apache/mod_fcgid, N persistent `mapserv` workers (NOT single mapscript),
@@ -13,28 +15,32 @@ Fairness::
     engine; cgroup `anon` sampled identically (page cache excluded - it's shared read-only data).
 
 Run:  benchmarks/vector/run.sh, or directly python3 benchmarks/vector/cos2023_vector_bench.py
-Env:  N (default 600) WARMUP (300) CONC (16) ENGINES (csv of keys; default ts+mapserver)
+Env:  DURATION (seconds, default 120) WARMUP (seconds, 30), or N (requests) and then WARMUP in requests; CONC (host cores) ENGINES (csv of keys; default ts+mapserver)
       TS_IMAGE / MS_IMAGE / GS_IMAGE default to the pins in config.yaml
 """
-import concurrent.futures as cf
+import http.client
+import multiprocessing as mp
 import os
+import random
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 # Self-locating: benchmarks/vector/this_file.py -> repo root.
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BENCH = os.path.join(REPO, "benchmarks", "vector")
 sys.path.insert(0, os.path.join(REPO, "lib"))
-from cgroup_mem import find_cgroup, read_anon  # noqa: E402
+from cgroup_mem import SETTLE_S, find_cgroup, read_anon, settle_curve  # noqa: E402
 
 # GPKG_DIR is mounted into the containers as /data, so it must be a directory holding
 # the REAL GeoPackage. Docker does not follow a host symlink inside a bind mount, so
 # if ./data holds symlinks (a local dev checkout) point this at the real directory.
 GPKG_DIR = os.environ.get("GPKG_DIR", os.path.join(REPO, "data"))
 SLD = os.environ.get("SLD", os.path.join(REPO, "config", "styles", "cos2023.sld"))
+GS_SLD = os.environ.get("GS_SLD", os.path.join(REPO, "config", "styles", "cos2023-recode.sld"))
 MAPFILE = os.environ.get("MAPFILE", os.path.join(REPO, "config", "mapfiles", "cos2023.map"))
 # Mount the FILE, resolved, never the directory. data/ on a developer box often holds
 # symlinks into another checkout, and a symlink inside a bind-mounted directory dangles
@@ -46,9 +52,10 @@ GPKG = os.path.realpath(os.path.join(GPKG_DIR, "COS2023v1-S2.gpkg"))
 # back to this directory so the script still works on its own.
 RESULTS_DIR = os.environ.get("RESULTS_DIR") or BENCH
 
-N = int(os.environ.get("N", "600"))
-WARMUP = int(os.environ.get("WARMUP", "300"))
-CONC = int(os.environ.get("CONC", "16"))
+DURATION = float(os.environ.get("DURATION", "120"))  # measured seconds per engine
+N = int(os.environ.get("N") or 0)                   # set: measure N requests instead, WARMUP in requests
+WARMUP = float(os.environ.get("WARMUP", "30"))      # discarded seconds (or requests with N) per engine
+CONC = int(os.environ.get("CONC") or os.cpu_count())  # default one client per host core ("1C")
 WMS_VERSION = "1.3.0"
 WANT = [k for k in os.environ.get("ENGINES", "").split(",") if k]
 
@@ -71,12 +78,18 @@ def pinned_image(engine, default):
 
 
 # The pinned public release image, run as-is (fonts baked in, --wms-cache present).
-TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.2.0")
+TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.3.6")
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
-GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
-GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "64")
+GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.1")
+GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
-MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS", "16")
+GS_JAVA_OPTS = (f"-Xms256m -Xmx{GS_XMX} -XX:G1PeriodicGCInterval=5000 "   # see benchmarks/throughput/sustained.py
+                "-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30")
+MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker per client
+# The image recycles a mapserv worker every 1000 requests. Past a few hundred req/s, mod_fcgid's
+# spawn limit (FcgidSpawnScoreUpLimit) then stops replacing them and the pool shrinks under load,
+# so the benchmark would measure the respawn rate. Some recycling stays, for the leaks it guards.
+MS_MAX_REQUESTS = os.environ.get("MS_MAX_REQUESTS", "10000")
 
 # --- profile: central/interior Portugal, all-land so every tile does real render work ---
 EXT = (-100000.0, -140000.0, -20000.0, -60000.0)  # EPSG:3763, 80km x 80km interior
@@ -99,6 +112,7 @@ def bboxes():
 
 
 BB = bboxes()
+MEASURED = 10 ** 9  # first request number of the measured run, past any warm-up
 
 
 class Engine:
@@ -127,21 +141,22 @@ def engines():
         Engine("mapserver", "MapServer-8.6-FastCGI", 19092, "cos2023", "/",
                ["-p", "19092:80", "-v", f"{MAPFILE}:/etc/mapserver/cos2023.map:ro",
                 "-v", f"{GPKG}:/data/COS2023v1-S2.gpkg:ro", "-e", f"MAX_PROCESSES={MS_MAX_PROCS}",
-                "-e", "MIN_PROCESSES=2", "-e", f"GDAL_CACHEMAX={GDAL_CACHEMAX}", MS_IMAGE],
+                "-e", "MIN_PROCESSES=2", "-e", f"MAX_REQUESTS_PER_PROCESS={MS_MAX_REQUESTS}",
+                "-e", f"GDAL_CACHEMAX={GDAL_CACHEMAX}", MS_IMAGE],
                f"apache/mod_fcgid: <= {MS_MAX_PROCS} persistent mapserv workers; GDAL cache {GDAL_CACHEMAX}MB/worker",
                extra_query="map=/etc/mapserver/cos2023.map"),
-        Engine("geoserver", "GeoServer-2.26", 19100, "bench:cos2023v1", "/geoserver/wms",
+        Engine("geoserver", "GeoServer", 19100, "bench:cos2023v1", "/geoserver/wms",
                ["-p", "19100:8080", "-v", f"{GPKG}:/data/COS2023v1-S2.gpkg:ro",
-                "-e", f"EXTRA_JAVA_OPTS=-Xms512m -Xmx{GS_XMX}", GS_IMAGE],
-               f"JVM commits heap toward -Xmx={GS_XMX} regardless of per-request use; GWC OFF (dynamic render)",
+                "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE],
+               f"JVM heap grows under load up to -Xmx={GS_XMX}, periodic G1 cycle gives it back when idle; GWC OFF (dynamic render)",
                setup=lambda cid, url: geoserver_setup(url)),
     ]
 
 
 def geoserver_setup(base_url):
-    """Provision workspace + GPKG store + layer + the cos2023 SLD via the REST API."""
+    """Provision workspace + GPKG store + layer + the cos2023 Recode SLD via the REST API."""
     rest = base_url.rsplit("/wms", 1)[0] + "/rest"
-    r = subprocess.run(["bash", f"{BENCH}/geoserver_cos2023_setup.sh", rest, SLD],
+    r = subprocess.run(["bash", f"{BENCH}/geoserver_cos2023_setup.sh", rest, GS_SLD],
                        capture_output=True, text=True)
     if r.returncode != 0:
         print(f"  geoserver setup FAILED:\n{r.stdout[-2000:]}\n{r.stderr[-1000:]}")
@@ -150,11 +165,17 @@ def geoserver_setup(base_url):
 
 
 def url(engine, i):
+    # Every request is a new one: the grid cell moved by up to a third of the window, seeded by i,
+    # so a response or tile cache cannot answer a repeat and runs stay reproducible.
+    rnd = random.Random(i)
+    dx, dy = rnd.uniform(0, WIN / 3), rnd.uniform(0, WIN / 3)
     x0, y0, x1, y1 = BB[i % len(BB)]
+    x0, y0, x1, y1 = x0 + dx, y0 + dy, x1 + dx, y1 + dy
     extra = f"&{engine.extra_query}" if engine.extra_query else ""
     return (f"{engine.base_url()}?SERVICE=WMS&VERSION={WMS_VERSION}&REQUEST=GetMap"
             f"&LAYERS={engine.layer}&STYLES=&CRS={CRS}{extra}"
-            f"&BBOX={x0},{y0},{x1},{y1}&WIDTH={SIZE}&HEIGHT={SIZE}&FORMAT={FMT}")
+            f"&BBOX={x0},{y0},{x1},{y1}&WIDTH={SIZE}&HEIGHT={SIZE}&FORMAT={FMT}"
+            "&TRANSPARENT=true")  # same RGBA image from every engine, see the throughput benchmark
 
 
 _STAT = {}
@@ -218,23 +239,60 @@ def wait_ready(engine, cid, timeout_s=240):
     return False
 
 
+# One keep-alive connection per client process, as a browser keeps one: a new connection per
+# request costs the engine a TCP setup each time, and at a few hundred req/s the client runs out
+# of local ports (TIME_WAIT holds each one for 60 s).
+_CONN = None
+
+
+def fetch(u):
+    global _CONN
+    parts = urllib.parse.urlsplit(u)
+    for retry in (False, True):  # a server may drop an idle keep-alive connection: retry once on a new one
+        if _CONN is None:
+            _CONN = http.client.HTTPConnection(parts.hostname, parts.port, timeout=120)
+        try:
+            _CONN.request("GET", f"{parts.path}?{parts.query}")
+            return _CONN.getresponse().read()
+        except (http.client.HTTPException, OSError):
+            _CONN.close()
+            _CONN = None
+            if retry:
+                raise
+
+
 def one(engine, i):
     t = time.time()
     try:
-        with urllib.request.urlopen(url(engine, i), timeout=120) as r:
-            ok = is_png(r.read())
+        data = fetch(url(engine, i))
+        size = len(data) if is_png(data) else 0  # 0: not a PNG
     except Exception:
-        ok = False
-    return ok, (time.time() - t) * 1000.0
+        size = 0
+    return size, (time.time() - t) * 1000.0
 
 
-def load(engine, n):
-    ok, lat = 0, []
-    with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-        for good, ms in ex.map(lambda i: one(engine, i), range(n)):
-            ok += int(good)
-            lat.append(ms)
-    return ok, lat
+_LOAD = None
+
+
+def client(w):
+    engine, amount, deadline, first = _LOAD
+    out, i = [], first + w
+    while (i - first < amount) if N else (time.time() < deadline):
+        out.append(one(engine, i))
+        i += CONC
+    return out
+
+
+def load(engine, amount, first=0):
+    """CONC client processes request back to back; client w walks bboxes w, w+CONC, ... With N set,
+    amount is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP). Processes, not
+    threads: one Python process runs out of CPU (GIL) at a few thousand req/s, before a fast engine
+    does. Forked, so the clients inherit the target from _LOAD without pickling it."""
+    global _LOAD
+    _LOAD = (engine, amount, time.time() + amount, first)
+    with mp.get_context("fork").Pool(CONC) as pool:
+        res = [r for rs in pool.map(client, range(CONC)) for r in rs]
+    return sum(1 for size, _ in res if size), [ms for _, ms in res], sum(size for size, _ in res)
 
 
 def pct(vals, p):
@@ -285,10 +343,9 @@ def run_engine(engine):
         s = threading.Thread(target=sampler)
         s.start()
         t0 = time.time()
-        ok, lat = load(engine, N)
+        ok, lat, nbytes = load(engine, N or DURATION, first=MEASURED)
         dur = time.time() - t0
-        time.sleep(2)
-        settle = cg_anon(cid)
+        settle = settle_curve(lambda: cg_anon(cid))
         stop.set()
         s.join()
         try:
@@ -297,11 +354,11 @@ def run_engine(engine):
         except Exception:
             pass
         if ok == 0:
-            print(f"  {engine.label}: FAILED, 0/{N} PNG responses (see sample_cos_{engine.key}.png for what came back)")
+            print(f"  {engine.label}: FAILED, 0/{len(lat)} PNG responses (see sample_cos_{engine.key}.png for what came back)")
             return None
-        if ok < N:
-            print(f"  {engine.label}: WARNING only {ok}/{N} responses were PNGs")
-        return dict(engine=engine, ok=ok, dur=dur, lat=lat, baseline=baseline,
+        if ok < len(lat):
+            print(f"  {engine.label}: WARNING only {ok}/{len(lat)} responses were PNGs")
+        return dict(engine=engine, ok=ok, dur=dur, lat=lat, nbytes=nbytes, baseline=baseline,
                     peak=max(series, default=0), settle=settle, version=version)
     finally:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
@@ -328,19 +385,19 @@ def write_results(results, failed=(), skipped=()):
         rec = {"key": e.key, "label": e.label, "family": fam, "shape": "warm-http",
                "cache": e.key == "ts-wmscache", "version": r.get("version"), "image": IMAGE[fam](),
                "mem_note": e.mem_note,
-               "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": N, "dur_s": round(r["dur"], 1),
+               "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": len(r["lat"]), "dur_s": round(r["dur"], 1),
                            "p50_ms": round(pct(r["lat"], 50)), "p95_ms": round(pct(r["lat"], 95)),
-                           "p99_ms": round(pct(r["lat"], 99)),
+                           "p99_ms": round(pct(r["lat"], 99)), "avg_kb": round(r["nbytes"] / r["ok"] / 1024, 1),
                            "base_mb": round(mb(r["baseline"])), "peak_mb": round(mb(r["peak"])),
-                           "settle_mb": round(mb(r["settle"]))}}
+                           **{f"settle_{s}s_mb": round(mb(v)) for s, v in zip(SETTLE_S, r["settle"])}}}
         if e.key in VARIANT:
             rec["variant"] = VARIANT[e.key]
         engines.append(rec)
     json.dump({"benchmark": "vector",
                "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-               "params": {"n": N, "warmup": WARMUP, "conc": CONC, "size": SIZE, "distinct_bboxes": len(BB),
+               "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "size": SIZE, "distinct_bboxes": len(BB), "unique_requests": True,
                           "crs": CRS, "wms": WMS_VERSION, "gpkg": "COS2023v1-S2.gpkg",
-                          "gdal_cachemax_mb": int(GDAL_CACHEMAX), "ms_max_procs": int(MS_MAX_PROCS), "gs_xmx": GS_XMX},
+                          "gdal_cachemax_mb": int(GDAL_CACHEMAX), "ms_max_procs": int(MS_MAX_PROCS), "ms_max_requests": int(MS_MAX_REQUESTS), "gs_xmx": GS_XMX},
                "engines": engines, "failed": list(failed), "skipped": list(skipped)},
               open(os.path.join(RESULTS_DIR, "vector.json"), "w"), indent=2)
 
@@ -364,7 +421,7 @@ def main():
     selected = {e.key for e in all_e}
     skipped = [e.key for e in engines() if e.key not in selected]     # the report says "not selected"
     print(f"profile=cos2023-vector  data=COS2023v1-S2.gpkg(842413 MultiPolygons, EPSG:3763)")
-    print(f"N={N} warmup={WARMUP} conc={CONC} size={SIZE}x{SIZE} win={WIN:.0f}m "
+    print(f"{f'N={N}' if N else f'duration={DURATION:g}s'} warmup={WARMUP:g} conc={CONC} size={SIZE}x{SIZE} win={WIN:.0f}m "
           f"distinct_bboxes={len(BB)} wms={WMS_VERSION}")
     results, failed = [], []
     for e in all_e:
@@ -372,18 +429,18 @@ def main():
         r = run_engine(e)
         if r:
             results.append(r)
-            print(f"    ok {r['ok']}/{N}  {r['ok']/r['dur']:.1f} req/s  "
+            print(f"    ok {r['ok']}/{len(r['lat'])}  {r['ok']/r['dur']:.1f} req/s  "
                   f"p50 {pct(r['lat'],50):.0f}ms  p95 {pct(r['lat'],95):.0f}ms  "
                   f"peak {mb(r['peak']):.0f}M")
         else:
             failed.append(e.key)
     print(f"\n{'engine':24s} {'ok/N':>10s} {'req/s':>8s} {'p50ms':>8s} {'p95ms':>8s} "
-          f"{'base':>7s} {'peak':>7s} {'settle':>7s}")
+          f"{'base':>7s} {'peak':>7s} {'settle 2/10/30 s':>18s}")
     for r in results:
         e = r["engine"]
-        print(f"{e.label:24s} {r['ok']:>4d}/{N:<5d} {r['ok']/r['dur']:>8.1f} "
+        print(f"{e.label:24s} {r['ok']:>5d}/{len(r['lat']):<6d} {r['ok']/r['dur']:>8.1f} "
               f"{pct(r['lat'],50):>8.0f} {pct(r['lat'],95):>8.0f} "
-              f"{mb(r['baseline']):>6.0f}M {mb(r['peak']):>6.0f}M {mb(r['settle']):>6.0f}M")
+              f"{mb(r['baseline']):>6.0f}M {mb(r['peak']):>6.0f}M {'/'.join(f'{mb(v):.0f}' for v in r['settle']):>17s}M")
     print("\nmemory model (why `anon` differs per engine):")
     for r in results:
         print(f"  {r['engine'].label:24s} {r['engine'].mem_note}")

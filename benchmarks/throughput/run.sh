@@ -21,10 +21,12 @@ STYLE="${REPO_DIR}/config/styles/rgb.json"
 MAPFILE="${REPO_DIR}/config/mapfiles/cascais_wms.map"
 
 # Benchmark parameters (environment overrides, defaults here; config.yaml holds only the pins)
-N=${N:-800}              # Total requests
-CONC=${CONC:-4}          # Concurrent connections
-WARMUP=${WARMUP:-100}    # Discarded requests per engine before the measured N
-ENGINES=${ENGINES:-mapserver,ts-nocache,ts-lru,geoserver}
+DURATION=${DURATION:-120} # Measured seconds per engine
+CONC=${CONC:-$(nproc)}   # Concurrent connections, default one per host core ("1C")
+WARMUP=${WARMUP:-30}     # Discarded seconds per engine (requests when N is set)
+# N=<requests> measures a fixed request count instead of DURATION
+# gs-libdeflate ships a native library for linux x86_64 only
+ENGINES=${ENGINES:-mapserver,ts-nocache,ts-lru,geoserver$([ "$(uname -m)" = x86_64 ] && echo ,gs-libdeflate)}
 # Engine images come from config.yaml (one place to bump a version); env overrides win.
 # TS_BIN=/path/to/terraserve swaps a local build in for the pinned release (developer use).
 source "${LIB_DIR}/config.sh"
@@ -43,7 +45,7 @@ echo "=========================================="
 echo "Sustained Throughput Benchmark"
 echo "=========================================="
 echo "Concurrent: ${CONC}"
-echo "Total requests: ${N} (after ${WARMUP} warm-up per engine)"
+echo "Duration: ${DURATION} s per engine (after ${WARMUP} s warm-up)"
 echo "Engines:    ${ENGINES}"
 echo ""
 
@@ -53,7 +55,7 @@ echo "Sustained load: MapServer vs TerraServe (no-cache and LRU) vs GeoServer"
 # A failed engine exits non-zero. Still write the report (it marks the engine FAILED),
 # then propagate the failure so run_all.sh shows FAIL rather than a clean PASS.
 rc=0
-N="$N" CONC="$CONC" WARMUP="$WARMUP" ENGINES="$ENGINES" MS_IMAGE="$MS_IMAGE" TS_IMAGE="$TS_IMAGE" \
+DURATION="$DURATION" N="${N:-}" CONC="$CONC" WARMUP="$WARMUP" ENGINES="$ENGINES" MS_IMAGE="$MS_IMAGE" TS_IMAGE="$TS_IMAGE" \
     GS_IMAGE="$GS_IMAGE" TS_BIN="${TS_BIN:-}" RESULTS_DIR="$RESULTS_DIR" python3 "${BENCH_DIR}/sustained.py" || rc=$?
 
 

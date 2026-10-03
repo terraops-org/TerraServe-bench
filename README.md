@@ -14,7 +14,7 @@ All fixture files are downloaded from the project VPS ([terraserve.io/fixtures](
 - Python 3.9+ with `requests` (GeoServer REST scripts) and Pillow (throughput plot): `pip install -r requirements.txt`
 - Bash 4.4+, `curl`
 - Benchmarks pull the pinned public release image named in `config.yaml` (currently
-  `ghcr.io/terraops-org/terraserve:0.3.5`), no need for rustc
+  `ghcr.io/terraops-org/terraserve:0.3.6`), no need for rustc
 
 ### TerraServe version under test
 
@@ -23,8 +23,8 @@ All fixture files are downloaded from the project VPS ([terraserve.io/fixtures](
 ```yaml
 engines:
   terraserve:
-    image: "ghcr.io/terraops-org/terraserve:0.2.0@sha256:a482e6cf..."
-    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.2.0"
+    image: "ghcr.io/terraops-org/terraserve:0.3.6@sha256:9dc9c5f1..."
+    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.6"
 ```
 
 
@@ -80,7 +80,7 @@ docker compose down && docker compose up -d geoserver postgis && cd benchmarks/r
 **Individual benchmarks:**
 ```bash
 cd benchmarks/render && ./run.sh        # MapServer vs TerraServe vs GeoServer
-cd benchmarks/throughput && ./run.sh    # Sustained load: MapServer vs TerraServe vs GeoServer (800 requests, 4 concurrent)
+cd benchmarks/throughput && ./run.sh    # Sustained load: MapServer vs TerraServe vs GeoServer (120 s per engine, one client per core)
 cd benchmarks/vector && ./run.sh        # COS2023 vector WMS: TerraServe vs MapServer vs GeoServer
 ```
 
@@ -137,19 +137,22 @@ Long-running servers under load with varying bboxes (simulates panning).
 **Metrics:**
 - Memory over time (baseline -> peak -> settle)
 - Throughput (req/s)
+- Average PNG size: engines compress with different effort, so the same image can cost
+  a different number of bytes on the wire
 - Tail latency
 
 **Configuration:**
-- Total requests: 800 (default), over 600 distinct bboxes
-- Concurrent connections: 4 (default)
-- Warm-up: 100 discarded requests per engine before the measured N (default)
+- Duration: 120 s measured per engine (default), over 600 grid cells; each request is shifted by a
+  seeded random offset, so no request repeats and a response cache cannot answer it
+- Concurrent connections: one per host core (default, `nproc`)
+- Warm-up: 30 s of discarded requests per engine before the measured run (default)
 - Engines: MapServer (Apache + mod_fcgid), TerraServe (no cache, and LRU 256) and
-  GeoServer (own container, `-Xms512m -Xmx4096m`, GWC off, provisioned over REST)
+  GeoServer (own container, `-Xms256m -Xmx4g` with periodic G1 collection, GWC off, provisioned over REST)
 
 Set via environment:
 ```bash
-CONC=8 N=2000 WARMUP=200 ./run.sh
-ENGINES=mapserver,ts-nocache ./run.sh     # keys: mapserver ts-nocache ts-lru geoserver
+CONC=8 DURATION=300 WARMUP=60 ./run.sh
+ENGINES=mapserver,ts-nocache ./run.sh     # keys: mapserver ts-nocache ts-lru geoserver gs-libdeflate
 ```
 
 ### Vector (`benchmarks/vector/`)
@@ -162,13 +165,21 @@ This is the like-for-like server comparison, all three engines warm.
 response cache on, listed but kept out of the summary), `mapserver` (Apache + mod_fcgid),
 `geoserver` (own container, GWC off).
 
-**Dataset:** COS 2023 v1 (Portugal land cover, 842,413 polygons, EPSG:3763), 81 distinct
-bboxes over an all-land interior window.
+**Dataset:** COS 2023 v1 (Portugal land cover, 842,413 polygons, EPSG:3763), 81 grid
+cells over an all-land interior window, each request shifted so none repeats.
 
 **Metrics:**
-- req/s, p50 and p95 latency, ok/N (a response only counts when it is a PNG)
+- req/s, average PNG size, p50 and p95 latency, ok/N (a response only counts when it is a PNG)
 - cgroup `anon` memory: base, peak under load, settle
 - `sample_cos_<engine>.png` per engine for a visual parity check
+
+**Load:** by default each engine gets 30 s of warm-up and 120 s of measured load, with one client per
+host core. `DURATION`, `WARMUP` and `CONC` change that; `N=<requests>` measures a fixed request count
+instead, with `WARMUP` then counted in requests too. For the peak load of many users at once:
+
+```bash
+CONC=128 ./run.sh
+```
 
 ## Repository Structure
 
@@ -213,9 +224,9 @@ engines:
   mapserver:
     image: "camptocamp/mapserver:8.6-gdal3.12"
   geoserver:
-    image: "docker.osgeo.org/geoserver:2.26.1"
+    image: "docker.osgeo.org/geoserver:3.0.1"
   terraserve:
-    image: "ghcr.io/terraops-org/terraserve:0.2.0@sha256:..."
+    image: "ghcr.io/terraops-org/terraserve:0.3.6@sha256:..."
 
 vps:
   host: "terraserve.io"
@@ -230,11 +241,11 @@ Override benchmarks at runtime:
 # Render: image size, memory repeats
 W=1024 H=768 MEM_RUNS=5 ./benchmarks/render/run.sh
 
-# Throughput: requests, warm-up, concurrency, engines
-CONC=8 N=2000 WARMUP=200 ENGINES=mapserver,ts-nocache,geoserver ./benchmarks/throughput/run.sh
+# Throughput: seconds measured, seconds of warm-up, concurrency, engines
+CONC=8 DURATION=300 WARMUP=60 ENGINES=mapserver,ts-nocache,geoserver ./benchmarks/throughput/run.sh
 
-# Vector: engines, requests, warm-up, concurrency
-ENGINES=ts-nocache,mapserver N=200 WARMUP=100 CONC=8 ./benchmarks/vector/run.sh
+# Vector: engines, seconds measured, seconds of warm-up, concurrency
+ENGINES=ts-nocache,mapserver DURATION=120 WARMUP=30 CONC=8 ./benchmarks/vector/run.sh
 
 # A local TerraServe instead of the pinned release (the report says LOCAL BUILD)
 TS_BIN=/path/to/terraserve ./benchmarks/render/run.sh
@@ -297,9 +308,12 @@ docker compose down
 All engines run in separate Docker containers without resource limits; the report shows
 what each one took:
 
-- MapServer: no limit; its FastCGI pool is capped at 16 workers in the vector benchmark
-- GeoServer: `-Xms1g -Xmx4g` in the compose stack (render), `-Xms512m -Xmx4096m` in the
-  vector benchmark's own container; the report prints the JVM options that ran
+- MapServer: no limit; its FastCGI pool has one worker per client (`CONC`, or `MS_MAX_PROCS`) in both server benchmarks,
+  and each worker is recycled after 10000 requests (`MS_MAX_REQUESTS`; the image default is 1000)
+  and keeps at most 16 MB of GDAL block cache (`GDAL_CACHEMAX`)
+- GeoServer: `-Xms256m -Xmx4g -XX:G1PeriodicGCInterval=5000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30`
+  in every benchmark: after 5 s without a collection G1 runs a concurrent cycle and gives free heap
+  back to the OS; the report prints the JVM options that ran
 - TerraServe: no GC; memory freed immediately after request. This is RUST
 
 Why anon and not peak RSS: `anon` is memory the process allocated and must free
@@ -391,7 +405,7 @@ The render and throughput benchmarks build `ts-bench:latest` from
 ```bash
 docker build --no-cache \
   --build-arg MS_IMAGE=camptocamp/mapserver:8.6-gdal3.12 \
-  --build-arg TS_IMAGE=ghcr.io/terraops-org/terraserve:0.2.0 \
+  --build-arg TS_IMAGE=ghcr.io/terraops-org/terraserve:0.3.6 \
   -f dockerfiles/Dockerfile.terraserve -t ts-bench:latest dockerfiles
 ```
 

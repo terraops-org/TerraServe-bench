@@ -125,7 +125,7 @@ Edit `docker-compose.yml` to adjust JVM heap:
 ```yaml
 geoserver:
   environment:
-    GEOSERVER_JAVA_OPTS: "-Xms2g -Xmx8g"
+    EXTRA_JAVA_OPTS: "-Xms2g -Xmx8g"
 ```
 
 Then restart:

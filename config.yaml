@@ -32,8 +32,8 @@ engines:
     description: "MapServer 8.6.5 (public image, GDAL 3.12, PROJ 9.7)"
 
   geoserver:
-    image: "docker.osgeo.org/geoserver:2.26.1"
-    description: "GeoServer 2.26.1"
+    image: "docker.osgeo.org/geoserver:3.0.1"
+    description: "GeoServer 3.0.1 (Java 21)"
 
   terraserve:
     # The image the public repo's CI publishes on a v* tag, pinned by tag AND digest so a
@@ -43,13 +43,13 @@ engines:
     # the three lines below, re-run the benchmarks, record the version in the results docs.
     # (sustained.py and cos2023_vector_bench.py carry a digest-less fallback string for runs
     # without this file; they may lag, this line is the one that counts.)
-    image: "ghcr.io/terraops-org/terraserve:0.3.5@sha256:174ab3527396c1ba9faab3fa5947c39bf4eec4384b99a0061db26622073c7069"
-    version: "0.3.5"
-    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.5"
-    description: "TerraServe 0.3.5 (vello_cpu render engine). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
+    image: "ghcr.io/terraops-org/terraserve:0.3.6@sha256:9dc9c5f1716b00907a703a0478cb6b3df7e5f41b779e982c86867fb4a4de6780"
+    version: "0.3.6"
+    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.6"
+    description: "TerraServe 0.3.6 (Debian trixie image). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
 
 # Benchmark settings are NOT read from this file. Each run.sh takes environment variables
-# (render: W H MEM_RUNS; throughput: N CONC; vector: N WARMUP CONC ENGINES), see the README.
+# (render: W H MEM_RUNS; throughput: DURATION WARMUP CONC; vector: DURATION WARMUP CONC ENGINES), see the README.
 
 # Where setup.sh downloads from: https://<host><path>/<file>. Override with VPS_HOST / VPS_PATH.
 vps:

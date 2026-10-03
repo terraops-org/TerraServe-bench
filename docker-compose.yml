@@ -22,18 +22,18 @@ services:
 
   # GeoServer for raster and vector rendering
   geoserver:
-    image: docker.osgeo.org/geoserver:2.26.1
+    image: docker.osgeo.org/geoserver:3.0.1
     depends_on:
       postgis:
         condition: service_healthy
     environment:
       GEOSERVER_ADMIN_USER: admin
       GEOSERVER_ADMIN_PASSWORD: geoserver
-      GEOSERVER_JAVA_OPTS: "-Xms1g -Xmx4g"
+      EXTRA_JAVA_OPTS: "-Xms256m -Xmx4g -XX:G1PeriodicGCInterval=5000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30"
     ports:
       - "8080:8080"
     volumes:
-      - geoserver_data:/opt/geoserver/data_dir
+      - geoserver_data:/opt/geoserver_data
       - ./data:/data/cogs:ro
       - ./config:/config:ro
     labels:

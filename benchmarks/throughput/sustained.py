@@ -2,33 +2,37 @@
 """Sustained-load memory + throughput benchmark: TerraServe serve vs MapServer (Apache + mod_fcgid)
 vs GeoServer (own container, provisioned over REST by the render benchmark's script, GWC off).
 
-All run as long-running HTTP servers (containers). We fire ~N GetMaps at VARYING bboxes
+All run as long-running HTTP servers (containers). We fire GetMaps for DURATION seconds at VARYING bboxes
 (panning -> grows GDAL's process-global block cache) and sample each container's
 ANONYMOUS memory over time (cgroup memory.stat `anon` = memory the process holds and must
 free itself; excludes reclaimable page cache, which both share reading the same COG).
 
 Reports baseline / peak / post-load-settle anon + throughput, an ASCII curve, and (if
 Pillow is present) a PNG plot. Run on the host via benchmarks/throughput/run.sh, or directly:
-    N=300 CONC=4 WARMUP=100 ENGINES=mapserver,ts-nocache,ts-lru,geoserver python3 benchmarks/throughput/sustained.py
+    DURATION=120 WARMUP=30 ENGINES=mapserver,ts-nocache,ts-lru,geoserver python3 benchmarks/throughput/sustained.py
 """
 import atexit
 import base64
-import concurrent.futures as cf
+import http.client
 import json
+import multiprocessing as mp
 import os
+import platform
+import random
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 # Repo root is two levels up: benchmarks/throughput/sustained.py -> repo.
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 COG = os.environ.get("COG", f"{REPO}/data/cascais.cog.deflate.tif")
 sys.path.insert(0, os.path.join(REPO, "lib"))
-from cgroup_mem import find_cgroup, read_anon  # noqa: E402
+from cgroup_mem import SETTLE_S, find_cgroup, read_anon, settle_curve  # noqa: E402
 
 def pinned_image(engine, default):
     """Image for <engine> from config.yaml, so a version is bumped in ONE place. Stdlib only:
@@ -49,11 +53,24 @@ def pinned_image(engine, default):
 
 
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
-TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.2.0")
+TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.3.6")
 TS_BIN = os.environ.get("TS_BIN") or None  # a local build instead of the pinned release
-GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:2.26.1")
+GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.1")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
-GS_JAVA_OPTS = f"-Xms512m -Xmx{GS_XMX}"          # same shape as the vector benchmark's GeoServer
+# The gs-libdeflate community module inflates the COG tiles with libdeflate instead of zlib.
+# Release jars matching GS_IMAGE's GeoServer and imageio-ext versions; libdeflate-java-core
+# ships a native library for linux x86_64 only.
+OSGEO_REPO = "https://repo.osgeo.org/repository/release"
+GS_LIBDEFLATE_JARS = [
+    f"{OSGEO_REPO}/org/geoserver/community/gs-libdeflate/3.0.1/gs-libdeflate-3.0.1.jar",
+    f"{OSGEO_REPO}/it/geosolutions/imageio-ext/imageio-ext-libdeflate/2.1.1/imageio-ext-libdeflate-2.1.1.jar",
+    f"{OSGEO_REPO}/me/steinborn/libdeflate-java-core/0.1.0-beta/libdeflate-java-core-0.1.0-beta.jar"]
+GS_LIB = "/usr/local/tomcat/webapps/geoserver/WEB-INF/lib"
+# Same as the vector benchmark and the compose stack. When G1 has not collected for 5 s it runs a
+# concurrent cycle and shrinks the heap to 30% free, so an idle JVM gives memory back; under load
+# the young collections come far more often and it never fires.
+GS_JAVA_OPTS = (f"-Xms256m -Xmx{GS_XMX} -XX:G1PeriodicGCInterval=5000 "
+                "-XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30")
 # Where the JSON record, the plot and the raw series go. run.sh always sets it; a bare
 # python3 sustained.py falls back to /tmp so it still works.
 RESULTS_DIR = os.environ.get("RESULTS_DIR") or "/tmp"
@@ -75,17 +92,31 @@ for src, dst in [
 if not os.path.exists(COG):
     sys.exit(f"[ERROR] COG not found at {COG}. Run ./setup.sh")
 
-N = int(os.environ.get("N", "800"))
-CONC = int(os.environ.get("CONC", "4"))
-# Discarded requests before the measured N, for EVERY engine, so a JVM's cold JIT and a
+DURATION = float(os.environ.get("DURATION", "120"))  # measured seconds per engine
+N = int(os.environ.get("N") or 0)                   # set: measure N requests instead, WARMUP in requests
+CONC = int(os.environ.get("CONC") or os.cpu_count())  # default one client per host core ("1C")
+MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker per client, as in vector
+# The image recycles a mapserv worker every 1000 requests. Past a few hundred req/s, mod_fcgid's
+# spawn limit (FcgidSpawnScoreUpLimit) then stops replacing them and the pool shrinks under load,
+# so the benchmark would measure the respawn rate. Some recycling stays, for the leaks it guards.
+MS_MAX_REQUESTS = os.environ.get("MS_MAX_REQUESTS", "10000")
+# GDAL's block cache per mapserv worker, as in the vector benchmark. At the image default the
+# workers keep the whole decoded test area in memory and stop decompressing the COG, which a
+# server with many layers cannot do.
+GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
+# Discarded seconds of load before the measured DURATION, for EVERY engine, so a JVM's cold JIT and a
 # FastCGI pool still growing are not what "sustained" measures (cold starts are the render
 # benchmark's subject).
-WARMUP = int(os.environ.get("WARMUP", "100"))
-ENGINE_KEYS = ["mapserver", "ts-nocache", "ts-lru", "geoserver"]
-ENGINES = [k for k in os.environ.get("ENGINES", ",".join(ENGINE_KEYS)).split(",") if k]
+WARMUP = float(os.environ.get("WARMUP", "30"))
+ENGINE_KEYS = ["mapserver", "ts-nocache", "ts-lru", "geoserver", "gs-libdeflate"]
+X86_64 = platform.machine() in ("x86_64", "AMD64")
+_default = [k for k in ENGINE_KEYS if X86_64 or k != "gs-libdeflate"]
+ENGINES = [k for k in os.environ.get("ENGINES", ",".join(_default)).split(",") if k]
 _unknown = [k for k in ENGINES if k not in ENGINE_KEYS]
 if _unknown:
     sys.exit(f"[ERROR] unknown engine key(s): {', '.join(_unknown)}. Known: {', '.join(ENGINE_KEYS)}")
+if "gs-libdeflate" in ENGINES and not X86_64:
+    sys.exit(f"[ERROR] gs-libdeflate needs linux x86_64, this host is {platform.machine()}")
 EXT = (-116201.25, -108717.25, -109034.0, -103918.25)  # EPSG:3763
 WIN = 300.0
 
@@ -103,18 +134,23 @@ def bboxes():
 
 
 BB = bboxes()
+MEASURED = 10 ** 9  # first request number of the measured run, past any warm-up
 
 
 def url(target, i):
-    """target = (base_url, layer, extra_query). GeoServer needs its workspace-qualified
-    layer and TRANSPARENT=true (without it a quarter of the image is opaque white where
-    the other engines leave nodata transparent, see the render benchmark)."""
-    base, layer, extra = target
+    """target = (base_url, layer). Every engine gets TRANSPARENT=true, so all of them encode the
+    same RGBA image; without it GeoServer rightly answers opaque RGB, one band less to encode."""
+    base, layer = target
+    # Every request is a new one: the grid cell moved by up to a third of the window, seeded by i,
+    # so a response or tile cache cannot answer a repeat and runs stay reproducible.
+    rnd = random.Random(i)
+    dx, dy = rnd.uniform(0, WIN / 3), rnd.uniform(0, WIN / 3)
     x0, y0, x1, y1 = BB[i % len(BB)]
+    x0, y0, x1, y1 = x0 + dx, y0 + dy, x1 + dx, y1 + dy
     # MapServer's base already carries ?map=..., so keep appending with & in that case.
     sep = "&" if "?" in base else "?"
     return (f"{base}{sep}SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS={layer}&STYLES="
-            f"&CRS=EPSG:3763&BBOX={x0},{y0},{x1},{y1}&WIDTH=256&HEIGHT=256&FORMAT=image/png{extra}")
+            f"&CRS=EPSG:3763&BBOX={x0},{y0},{x1},{y1}&WIDTH=256&HEIGHT=256&FORMAT=image/png&TRANSPARENT=true")
 
 
 def docker_run(args):
@@ -181,12 +217,58 @@ def wait_ready(name, cid, target):
     return False
 
 
+# One keep-alive connection per client process, as a browser keeps one: a new connection per
+# request costs the engine a TCP setup each time, and at a few hundred req/s the client runs out
+# of local ports (TIME_WAIT holds each one for 60 s).
+_CONN = None
+
+
+def fetch(u):
+    global _CONN
+    parts = urllib.parse.urlsplit(u)
+    for retry in (False, True):  # a server may drop an idle keep-alive connection: retry once on a new one
+        if _CONN is None:
+            _CONN = http.client.HTTPConnection(parts.hostname, parts.port, timeout=60)
+        try:
+            _CONN.request("GET", f"{parts.path}?{parts.query}")
+            return _CONN.getresponse().read()
+        except (http.client.HTTPException, OSError):
+            _CONN.close()
+            _CONN = None
+            if retry:
+                raise
+
+
 def one(target, i):
+    """Size of the PNG answer in bytes, 0 when the answer is not a PNG."""
     try:
-        with urllib.request.urlopen(url(target, i), timeout=60) as r:
-            return is_png(r.read())
+        data = fetch(url(target, i))
+        return len(data) if is_png(data) else 0
     except Exception:
-        return False
+        return 0
+
+
+_LOAD = None
+
+
+def client(w):
+    target, amount, deadline, first = _LOAD
+    out, i = [], first + w
+    while (i - first < amount) if N else (time.time() < deadline):
+        out.append(one(target, i))
+        i += CONC
+    return out
+
+
+def load(target, amount, first=0):
+    """CONC client processes request back to back; client w walks bboxes w, w+CONC, ... With N set,
+    amount is a request count (N, WARMUP), otherwise seconds (DURATION, WARMUP). Processes, not
+    threads: one Python process runs out of CPU (GIL) at a few thousand req/s, before a fast engine
+    does. Forked, so the clients inherit the target from _LOAD without pickling it."""
+    global _LOAD
+    _LOAD = (target, amount, time.time() + amount, first)
+    with mp.get_context("fork").Pool(CONC) as pool:
+        return [size for rs in pool.map(client, range(CONC)) for size in rs]
 
 
 def run_server(name, cid, target):
@@ -194,8 +276,7 @@ def run_server(name, cid, target):
         print(f"{name}: NOT READY (no PNG GetMap within the timeout)")
         return None
     if WARMUP:
-        with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-            list(ex.map(lambda i: one(target, i), range(WARMUP)))      # discarded
+        load(target, WARMUP)      # discarded
     time.sleep(1)
     baseline = cg_anon(cid)
     series, stop = [], threading.Event()
@@ -208,22 +289,20 @@ def run_server(name, cid, target):
 
     s = threading.Thread(target=sampler)
     s.start()
-    t0, ok = time.time(), 0
-    with cf.ThreadPoolExecutor(max_workers=CONC) as ex:
-        for r in ex.map(lambda i: one(target, i), range(N)):
-            ok += int(r)
+    t0 = time.time()
+    res = load(target, N or DURATION, first=MEASURED)
+    ok, n, nbytes = sum(1 for size in res if size), len(res), sum(res)
     dur = time.time() - t0
-    time.sleep(2)  # settle: does it give memory back?
-    settle = cg_anon(cid)
+    settle = settle_curve(lambda: cg_anon(cid))
     stop.set()
     s.join()
     peak = max((v for _, v in series), default=0)
     if ok == 0:
-        print(f"{name}: FAILED, 0/{N} PNG responses")
+        print(f"{name}: FAILED, 0/{n} PNG responses")
         return None
-    if ok < N:
-        print(f"{name}: WARNING only {ok}/{N} responses were PNGs")
-    return dict(name=name, baseline=baseline, peak=peak, settle=settle, ok=ok, dur=dur, series=series)
+    if ok < n:
+        print(f"{name}: WARNING only {ok}/{n} responses were PNGs")
+    return dict(name=name, baseline=baseline, peak=peak, settle=settle, ok=ok, n=n, nbytes=nbytes, dur=dur, series=series)
 
 
 def mb(x):
@@ -297,7 +376,7 @@ ms_ver = " ".join(subprocess.run(["docker", "run", "--rm", "--entrypoint", "map2
                                  capture_output=True, text=True).stdout.split()[:3])
 print(f"TerraServe: {ts_ver} ({ts_label})\nMapServer:  {ms_ver} ({MS_IMAGE})")
 
-if "geoserver" in ENGINES:
+if "geoserver" in ENGINES or "gs-libdeflate" in ENGINES:
     print(f"GeoServer:  {GS_IMAGE} ({GS_JAVA_OPTS}, GWC off)")
 
 mounts = ["-v", f"{COG}:/data/cog.tif:ro", "-v", f"{BENCH}:/work"]
@@ -319,27 +398,47 @@ if "ts-nocache" in ENGINES:
 if "mapserver" in ENGINES:
     cids["mapserver"] = docker_run(["-v", f"{COG}:/data/cog.tif:ro",
                                     "-v", f"{BENCH}/cascais_wms.map:{MS_MAPFILE}:ro",
-                                    "-p", "18090:80", MS_IMAGE])
+                                    "-p", "18090:80", "-e", f"MAX_PROCESSES={MS_MAX_PROCS}",
+                                    "-e", "MIN_PROCESSES=2", "-e", f"MAX_REQUESTS_PER_PROCESS={MS_MAX_REQUESTS}",
+                                    "-e", f"GDAL_CACHEMAX={GDAL_CACHEMAX}", MS_IMAGE])
 # GeoServer in its own container, like the vector benchmark: the COG lands where the
 # render benchmark's REST script expects it (/data/cogs/<file>), heap as GS_XMX, GWC off.
 if "geoserver" in ENGINES:
     cids["geoserver"] = docker_run(["-v", f"{COG}:/data/cogs/{os.path.basename(COG)}:ro",
                                     "-p", "18091:8080", "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE])
-print("  ".join(f"{k} {v[:12]}" for k, v in cids.items()) + f"  N={N} warmup={WARMUP} conc={CONC} distinct_bboxes={len(BB)}")
+# The same GeoServer with the gs-libdeflate jars added, downloaded once into data/.
+if "gs-libdeflate" in ENGINES:
+    jar_dir = f"{REPO}/data/gs-libdeflate"
+    os.makedirs(jar_dir, exist_ok=True)
+    jar_mounts = []
+    for jar_url in GS_LIBDEFLATE_JARS:
+        jar = f"{jar_dir}/{os.path.basename(jar_url)}"
+        if not os.path.exists(jar):
+            print(f"downloading {jar_url}")
+            urllib.request.urlretrieve(jar_url, jar)
+        jar_mounts += ["-v", f"{jar}:{GS_LIB}/{os.path.basename(jar)}:ro"]
+    cids["gs-libdeflate"] = docker_run(["-v", f"{COG}:/data/cogs/{os.path.basename(COG)}:ro"] + jar_mounts
+                                       + ["-p", "18092:8080", "-e", f"EXTRA_JAVA_OPTS={GS_JAVA_OPTS}", GS_IMAGE])
+print("  ".join(f"{k} {v[:12]}" for k, v in cids.items()) + f"  {f'N={N}' if N else f'duration={DURATION:g}s'} warmup={WARMUP:g} conc={CONC} distinct_bboxes={len(BB)}")
 res, gs_ver = {}, None
 try:
     if "mapserver" in cids:
         res["mapserver"] = run_server("MapServer", cids["mapserver"],
-                                      (f"http://localhost:18090/?map={MS_MAPFILE}", "cascais", ""))
+                                      (f"http://localhost:18090/?map={MS_MAPFILE}", "cascais"))
     if "ts-nocache" in cids:
-        res["ts-nocache"] = run_server("TerraServe-nocache", cids["ts-nocache"], ("http://localhost:18081/wms", "cascais", ""))
+        res["ts-nocache"] = run_server("TerraServe-nocache", cids["ts-nocache"], ("http://localhost:18081/wms", "cascais"))
     if "ts-lru" in cids:
-        res["ts-lru"] = run_server("TerraServe-LRU", cids["ts-lru"], ("http://localhost:18080/wms", "cascais", ""))
+        res["ts-lru"] = run_server("TerraServe-LRU", cids["ts-lru"], ("http://localhost:18080/wms", "cascais"))
     if "geoserver" in cids:
         gs_ver = geoserver_setup(cids["geoserver"], "http://localhost:18091/geoserver")
         if gs_ver:
             res["geoserver"] = run_server("GeoServer", cids["geoserver"],
-                                          ("http://localhost:18091/geoserver/ows", "benchmarks:cascais_rgb_cog", "&TRANSPARENT=true"))
+                                          ("http://localhost:18091/geoserver/ows", "benchmarks:cascais_rgb_cog"))
+    if "gs-libdeflate" in cids:
+        gs_ver = geoserver_setup(cids["gs-libdeflate"], "http://localhost:18092/geoserver") or gs_ver
+        if gs_ver:
+            res["gs-libdeflate"] = run_server("GeoServer-libdeflate", cids["gs-libdeflate"],
+                                              ("http://localhost:18092/geoserver/ows", "benchmarks:cascais_rgb_cog"))
 finally:
     if cids:
         subprocess.run(["docker", "rm", "-f"] + list(cids.values()), capture_output=True)
@@ -348,10 +447,10 @@ results = [res[k] for k in ENGINE_KEYS if res.get(k)]
 failed = [k for k in ENGINES if not res.get(k)]
 skipped = [k for k in ENGINE_KEYS if k not in ENGINES]
 mx = max((r["peak"] for r in results), default=1)
-print(f"\n{'engine':20s} {'ok/N':>10s} {'req/s':>7s} {'baseline':>9s} {'peak':>8s} {'settle':>8s}  anon under load")
+print(f"\n{'engine':20s} {'ok/N':>10s} {'req/s':>7s} {'baseline':>9s} {'peak':>8s} {'settle 2/10/30 s':>22s}  anon under load")
 for r in results:
-    print(f"{r['name']:20s} {r['ok']:>4d}/{N:<5d} {r['ok']/r['dur']:>7.1f} "
-          f"{mb(r['baseline']):>7.1f}MB {mb(r['peak']):>6.1f}MB {mb(r['settle']):>6.1f}MB  {spark(r['series'], mx)}")
+    print(f"{r['name']:20s} {r['ok']:>5d}/{r['n']:<6d} {r['ok']/r['dur']:>7.1f} "
+          f"{mb(r['baseline']):>7.1f}MB {mb(r['peak']):>6.1f}MB {'/'.join(f'{mb(v):.0f}' for v in r['settle']):>20s}MB  {spark(r['series'], mx)}")
 
 import datetime
 import json
@@ -361,7 +460,8 @@ json.dump({r["name"]: r["series"] for r in results}, open(f"{RESULTS_DIR}/sustai
 IDENT = {"MapServer": ("mapserver", "mapserver", None),
          "TerraServe-nocache": ("ts-nocache", "terraserve", "nocache"),
          "TerraServe-LRU": ("ts-lru", "terraserve", "lru"),
-         "GeoServer": ("geoserver", "geoserver", None)}
+         "GeoServer": ("geoserver", "geoserver", None),
+         "GeoServer-libdeflate": ("gs-libdeflate", "geoserver", "libdeflate")}
 VERSION = {"mapserver": ms_ver, "terraserve": ts_ver, "geoserver": gs_ver}
 IMAGE = {"mapserver": MS_IMAGE, "terraserve": (f"local:{TS_BIN}" if TS_BIN else TS_IMAGE), "geoserver": GS_IMAGE}
 engines = []
@@ -369,9 +469,10 @@ for r in results:
     key, fam, variant = IDENT[r["name"]]
     e = {"key": key, "label": r["name"], "family": fam, "shape": "warm-http",
          "version": VERSION[fam], "image": IMAGE[fam],
-         "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": N, "dur_s": round(r["dur"], 1),
+         "metrics": {"req_s": round(r["ok"] / r["dur"], 1), "ok": r["ok"], "n": r["n"], "dur_s": round(r["dur"], 1),
+                     "avg_kb": round(r["nbytes"] / r["ok"] / 1024, 1),
                      "baseline_mb": round(mb(r["baseline"]), 1), "peak_mb": round(mb(r["peak"]), 1),
-                     "settle_mb": round(mb(r["settle"]), 1)}}
+                     **{f"settle_{s}s_mb": round(mb(v), 1) for s, v in zip(SETTLE_S, r["settle"])}}}
     if variant:
         e["variant"] = variant
     if TS_BIN and fam == "terraserve":
@@ -381,7 +482,7 @@ for r in results:
     engines.append(e)
 json.dump({"benchmark": "throughput",
            "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           "params": {"n": N, "warmup": WARMUP, "conc": CONC, "size": 256, "distinct_bboxes": len(BB),
+           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "ms_max_procs": int(MS_MAX_PROCS), "ms_max_requests": int(MS_MAX_REQUESTS), "gdal_cachemax_mb": int(GDAL_CACHEMAX), "size": 256, "distinct_bboxes": len(BB), "unique_requests": True,
                       "crs": "EPSG:3763", "cog": os.path.basename(COG), "gs_xmx": GS_XMX},
            "engines": engines, "failed": failed, "skipped": skipped, "plot": "sustained.png"},
           open(f"{RESULTS_DIR}/throughput.json", "w"), indent=2)
@@ -405,19 +506,20 @@ try:
         d.line([(pad, yy), (W - pad, yy)], fill=(225, 225, 225))
         d.text((6, yy - 6), f"{yv:5.0f}MB", fill=(90, 90, 90))
     colors = {"MapServer": (206, 45, 45), "TerraServe-nocache": (40, 160, 90),
-              "TerraServe-LRU": (30, 120, 205), "GeoServer": (120, 80, 200)}
+              "TerraServe-LRU": (30, 120, 205), "GeoServer": (120, 80, 200),
+              "GeoServer-libdeflate": (200, 130, 30)}
     for r in results:
         c = colors.get(r["name"], (0, 0, 0))
         pts = [(X(t), Y(mb(v))) for t, v in r["series"]]
         if len(pts) > 1:
             d.line(pts, fill=c, width=3)
     d.text((pad, 18), "Sustained GetMap load: anonymous memory held by the process", fill=(0, 0, 0))
-    d.text((pad, 34), f"({N} varying-bbox requests, {CONC} concurrent; lower is better; page cache excluded)", fill=(110, 110, 110))
+    d.text((pad, 34), f"({f'{N} requests' if N else f'{DURATION:g} s'} of varying-bbox requests, {CONC} concurrent; lower is better; page cache excluded)", fill=(110, 110, 110))
     ly = pad + 8
     for r in results:
         c = colors.get(r["name"], (0, 0, 0))
         d.rectangle([(W - 350, ly), (W - 334, ly + 12)], fill=c)
-        d.text((W - 328, ly), f"{r['name']}: peak {mb(r['peak']):.0f}MB  settle {mb(r['settle']):.0f}MB", fill=c)
+        d.text((W - 328, ly), f"{r['name']}: peak {mb(r['peak']):.0f}MB  settle at 30 s {mb(r['settle'][-1]):.0f}MB", fill=c)
         ly += 20
     d.text((W - pad - 70, H - pad + 8), f"{tmax:.0f}s", fill=(90, 90, 90))
     img.save(f"{RESULTS_DIR}/sustained.png")

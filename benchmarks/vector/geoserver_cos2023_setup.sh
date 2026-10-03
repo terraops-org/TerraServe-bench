@@ -19,6 +19,11 @@ done
 
 j() { curl -s $AUTH -H "Content-Type: application/json" "$@"; }
 
+# logging: the image starts with DEFAULT_LOGGING, which writes every parsed request to the log
+# and stdout; a server under load runs with PRODUCTION_LOGGING
+j -XPUT -d '{"logging":{"level":"PRODUCTION_LOGGING","location":"logs/geoserver.log","stdOutLogging":true}}' \
+  "$REST/logging" >/dev/null
+
 # 2) workspace
 j -XPOST -d "{\"workspace\":{\"name\":\"$WS\"}}" "$REST/workspaces" >/dev/null
 

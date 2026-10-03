@@ -97,12 +97,34 @@ def version_label(family, version=None, image=None):
     return name
 
 
+def load_text(p):
+    """How long each engine was loaded: a request count (N set, and every run before DURATION) or seconds."""
+    w = p.get("warmup", "?")
+    w = f"{w:g}" if isinstance(w, (int, float)) else w
+    if p.get("n"):
+        return f"N={p['n']} requests after {w} warm-up per engine"
+    return f"{p.get('duration_s', '?')} s per engine after {w} s warm-up"
+
+
+def bbox_text(p):
+    """Runs before unique_requests cycled the grid, so a cache could answer the repeats."""
+    if p.get("unique_requests"):
+        return f"{p.get('distinct_bboxes', '?')} grid cells, each request shifted so none repeats"
+    return f"{p.get('distinct_bboxes', '?')} distinct bboxes"
+
+
 def fmt(x, unit="", nd=1):
     if x is None:
         return "?"
     if isinstance(x, (int, float)):
         return f"{x:.{nd}f}{unit}" if nd else f"{x:.0f}{unit}"
     return f"{x}{unit}"
+
+
+def settle_cells(m, digits):
+    """anon 2, 10 and 30 s after the load as three table cells. Runs from before the curve
+    have one 2 s reading, `settle_mb`."""
+    return " | ".join(fmt(m.get(f"settle_{s}s_mb", m.get("settle_mb") if s == 2 else None), " MB", digits) for s in (2, 10, 30))
 
 
 def render_engines(run):
@@ -162,9 +184,9 @@ HOW_TO_READ = """## How to read this
   comparable with each other. Throughput and vector are warm HTTP servers for every engine.
 - **Memory is cgroup v2 `anon` for every engine.** For a cold process it is what one render
   cost; for the JVM it is what it holds. Page cache is excluded everywhere.
-- **A cache-hit row is not a render rate.** TerraServe's WMS-cache row in the vector table
-  serves repeats from memory while the other engines render every request. It is listed for
-  completeness and kept out of the summary.
+- **A cache row is kept out of the summary.** TerraServe's WMS-cache row in the vector table
+  has its response cache on. No request repeats, so it renders every request like the other
+  engines; in runs made before requests were unique it served repeats from memory.
 - **Which TerraServe:** the version column says what ran. A LOCAL BUILD marker means a
   developer binary was substituted for the pinned release.
 - **Empty cells mean several different things.** `not run`: that benchmark was not part of
@@ -226,10 +248,11 @@ def _summary_cells(run, fam):
     prim = by_family(tp, fam, "nocache") or by_family(tp, fam)
     if prim:
         m = prim[0]["metrics"]
-        cell = f"{fmt(m.get('req_s'))} req/s, settle {fmt(m.get('settle_mb'), ' MB')}"
-        lru = by_family(tp, fam, "lru")
-        if lru and lru[0] is not prim[0]:
-            cell += f" (LRU: {fmt(lru[0]['metrics'].get('req_s'))} req/s)"
+        cell = f"{fmt(m.get('req_s'))} req/s, settle at 30 s {fmt(m.get('settle_30s_mb'), ' MB')}"
+        for variant, label in (("lru", "LRU"), ("libdeflate", "libdeflate")):
+            extra = by_family(tp, fam, variant)
+            if extra and extra[0] is not prim[0]:
+                cell += f" ({label}: {fmt(extra[0]['metrics'].get('req_s'))} req/s)"
         tp_cell = cell + _failed_note(run, "throughput", fam)
     else:
         tp_cell = _absent_cell(run, "throughput", fam)
@@ -239,7 +262,7 @@ def _summary_cells(run, fam):
     if prim:
         m = prim[0]["metrics"]
         vec_cell = (f"{fmt(m.get('req_s'))} req/s, p50 {fmt(m.get('p50_ms'), ' ms', 0)}, "
-                    f"settle {fmt(m.get('settle_mb'), ' MB', 0)}") + _failed_note(run, "vector", fam)
+                    f"settle at 30 s {fmt(m.get('settle_30s_mb'), ' MB', 0)}") + _failed_note(run, "vector", fam)
     else:
         vec_cell = _absent_cell(run, "vector", fam)
     return render_cell, tp_cell, vec_cell
@@ -309,16 +332,15 @@ def render_markdown(run):
     out += ["## Throughput (sustained GetMap under panning)", ""]
     if t:
         p = t.get("params", {})
-        warm = f" after {p['warmup']} warm-up per engine" if p.get("warmup") else ""
-        out.append(f"N={p.get('n', '?')} requests{warm}, {p.get('conc', '?')} concurrent, {p.get('size', '?')}x{p.get('size', '?')}, "
-                   f"{p.get('distinct_bboxes', '?')} distinct bboxes.")
-        out += ["", "| engine | req/s | ok/N | baseline | peak | settle |", "|---|---|---|---|---|---|"]
+        out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, {p.get('size', '?')}x{p.get('size', '?')}, "
+                   f"{bbox_text(p)}.")
+        out += ["", "| engine | req/s | avg PNG | ok/N | baseline | peak | settle 2 s | 10 s | 30 s |", "|---|---|---|---|---|---|---|---|---|"]
         for e in t.get("engines", []):
             m = e.get("metrics", {})
-            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {m.get('ok', '?')}/{m.get('n', '?')} | "
-                       f"{fmt(m.get('baseline_mb'), ' MB')} | {fmt(m.get('peak_mb'), ' MB')} | {fmt(m.get('settle_mb'), ' MB')} |")
+            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {fmt(m.get('avg_kb'), ' KB')} | {m.get('ok', '?')}/{m.get('n', '?')} | "
+                       f"{fmt(m.get('baseline_mb'), ' MB')} | {fmt(m.get('peak_mb'), ' MB')} | " + settle_cells(m, 1) + " |")
         for k in _failed_keys(run, "throughput"):
-            out.append(f"| {k} | FAILED | | | | |")
+            out.append(f"| {k} | FAILED | | | | | | | |")
         gs = by_family(t.get("engines"), "geoserver")
         if gs and gs[0].get("jvm_opts"):
             out += ["", f"GeoServer JVM: `{gs[0]['jvm_opts']}`, GWC off, own container."]
@@ -332,17 +354,18 @@ def render_markdown(run):
     out += ["## Vector (COS2023 land cover as WMS)", ""]
     if v:
         p = v.get("params", {})
-        out.append(f"N={p.get('n', '?')} requests after {p.get('warmup', '?')} warm-up, {p.get('conc', '?')} concurrent, "
-                   f"{p.get('size', '?')}x{p.get('size', '?')}, {p.get('distinct_bboxes', '?')} distinct bboxes.")
-        out += ["", "| engine | req/s | ok/N | p50 | p95 | base | peak | settle | note |", "|---|---|---|---|---|---|---|---|---|"]
+        out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, "
+                   f"{p.get('size', '?')}x{p.get('size', '?')}, {bbox_text(p)}.")
+        out += ["", "| engine | req/s | avg PNG | ok/N | p50 | p95 | base | peak | settle 2 s | 10 s | 30 s | note |", "|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for e in v.get("engines", []):
             m = e.get("metrics", {})
-            note = "cache-hit rate, not a render rate" if e.get("cache") else ""
-            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {m.get('ok', '?')}/{m.get('n', '?')} | "
+            note = ("" if not e.get("cache") else
+                    "response cache on, no request repeats" if p.get("unique_requests") else "cache-hit rate, not a render rate")
+            out.append(f"| {e.get('label')} | {fmt(m.get('req_s'))} | {fmt(m.get('avg_kb'), ' KB')} | {m.get('ok', '?')}/{m.get('n', '?')} | "
                        f"{fmt(m.get('p50_ms'), ' ms', 0)} | {fmt(m.get('p95_ms'), ' ms', 0)} | {fmt(m.get('base_mb'), ' MB', 0)} | "
-                       f"{fmt(m.get('peak_mb'), ' MB', 0)} | {fmt(m.get('settle_mb'), ' MB', 0)} | {note} |")
+                       f"{fmt(m.get('peak_mb'), ' MB', 0)} | " + settle_cells(m, 0) + f" | {note} |")
         for k in _failed_keys(run, "vector"):
-            out.append(f"| {k} | FAILED | | | | | | | |")
+            out.append(f"| {k} | FAILED | | | | | | | | | | |")
     else:
         out.append("not run")
     out.append("")
@@ -384,8 +407,8 @@ def compare_markdown(a, b):
     out.append("")
     specs = [
         ("Render", _rows_render, [("median_ms", "median"), ("best_ms", "best"), ("max_ms", "max"), ("delta_median_mb", "anon per render"), ("base_mb", "anon base")]),
-        ("Throughput", lambda r: _rows_list(r, "throughput"), [("req_s", "req/s"), ("peak_mb", "peak"), ("settle_mb", "settle")]),
-        ("Vector", lambda r: _rows_list(r, "vector"), [("req_s", "req/s"), ("p50_ms", "p50"), ("p95_ms", "p95"), ("settle_mb", "settle")]),
+        ("Throughput", lambda r: _rows_list(r, "throughput"), [("req_s", "req/s"), ("peak_mb", "peak"), ("settle_30s_mb", "settle 30 s")]),
+        ("Vector", lambda r: _rows_list(r, "vector"), [("req_s", "req/s"), ("p50_ms", "p50"), ("p95_ms", "p95"), ("settle_30s_mb", "settle 30 s")]),
     ]
     for title, rows_of, metrics in specs:
         ra, rb = rows_of(a), rows_of(b)

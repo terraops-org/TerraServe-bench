@@ -48,14 +48,15 @@ def make_run(d, render=True, throughput=True, vector=True, ts_median=28.8, ts_re
                 {"key": "mapserver", "label": "MapServer", "family": "mapserver", "shape": "warm-http", "version": "MapServer version 8.6.5",
                  "metrics": {"req_s": 93.9, "ok": 100, "n": 100, "baseline_mb": 30.9, "peak_mb": 201.6, "settle_mb": 201.6}},
                 {"key": "ts-nocache", "label": "TerraServe-nocache", "family": "terraserve", "variant": "nocache", "shape": "warm-http", "version": "terraserve 0.2.0",
-                 "metrics": {"req_s": ts_req, "ok": 100, "n": 100, "baseline_mb": 280.4, "peak_mb": 338.7, "settle_mb": 231.6}},
+                 "metrics": {"req_s": ts_req, "ok": 100, "n": 100, "baseline_mb": 280.4, "peak_mb": 338.7,
+                             "settle_2s_mb": 300.2, "settle_10s_mb": 250.0, "settle_30s_mb": 231.6}},
                 {"key": "ts-lru", "label": "TerraServe-LRU", "family": "terraserve", "variant": "lru", "shape": "warm-http", "version": "terraserve 0.2.0",
                  "metrics": {"req_s": 373.8, "ok": 100, "n": 100, "baseline_mb": 276.8, "peak_mb": 372.0, "settle_mb": 291.2}},
             ]})
     if vector:
         write(d, "vector.json", {
             "benchmark": "vector", "date": "2026-09-06T08:02:00Z",
-            "params": {"n": 100, "warmup": 50, "conc": 8, "size": 256, "distinct_bboxes": 81},
+            "params": {"n": 0, "duration_s": 120, "warmup": 30, "conc": 8, "size": 256, "distinct_bboxes": 81},
             "engines": [
                 {"key": "ts-nocache", "label": "TerraServe-nocache", "family": "terraserve", "variant": "nocache", "cache": False, "shape": "warm-http", "version": "terraserve 0.2.0",
                  "metrics": {"req_s": 154.3, "p50_ms": 50, "p95_ms": 82, "base_mb": 199, "peak_mb": 298, "settle_mb": 153, "ok": 100, "n": 100}},
@@ -105,6 +106,21 @@ class Markdown(unittest.TestCase):
             self.assertNotIn("3772", summary)
             self.assertIn("3772", md)               # but present in the detailed vector table
             self.assertIn("cache-hit", md)
+
+    def test_libdeflate_row_is_shown_next_to_geoserver(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            tp = json.load(open(os.path.join(d, "throughput.json")))
+            for key, variant, req_s in (("geoserver", None, 412.0), ("gs-libdeflate", "libdeflate", 505.5)):
+                e = {"key": key, "family": "geoserver", "shape": "warm-http", "version": "GeoServer 2.26.1",
+                     "metrics": {"req_s": req_s, "settle_30s_mb": 900.0}}
+                if variant:
+                    e["variant"] = variant
+                tp["engines"].append(e)
+            write(d, "throughput.json", tp)
+            md = report.render_markdown(report.load(d))
+            row = [l for l in md.splitlines() if l.startswith("| GeoServer 2.26.1 |")][0]
+            self.assertIn("| 412.0 req/s, settle at 30 s 900.0 MB (libdeflate: 505.5 req/s) |", row)
 
     def test_missing_benchmark_says_not_run(self):
         with tempfile.TemporaryDirectory() as d:
@@ -177,6 +193,41 @@ class Markdown(unittest.TestCase):
             make_run(d)
             md = report.render_markdown(report.load(d))
             self.assertIn("N=100 requests after 100 warm-up per engine", md)
+
+    def test_vector_states_its_duration(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("120 s per engine after 30 s warm-up", md)
+
+    def test_unique_requests_are_stated(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            vec = json.load(open(os.path.join(d, "vector.json")))
+            vec["params"]["unique_requests"] = True
+            write(d, "vector.json", vec)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("81 grid cells, each request shifted so none repeats", md)
+            self.assertIn("response cache on, no request repeats", md)
+            self.assertIn("600 distinct bboxes", md)      # throughput run from before, cycled the grid
+
+    def test_average_png_size_is_shown(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            vec = json.load(open(os.path.join(d, "vector.json")))
+            vec["engines"][0]["metrics"]["avg_kb"] = 126.0
+            write(d, "vector.json", vec)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("| TerraServe-nocache | 154.3 | 126.0 KB | 100/100 |", md)
+            self.assertIn("| MapServer | 93.9 | ? | 100/100 |", md)   # older run, no size recorded
+
+    def test_settle_curve_is_shown(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("| 280.4 MB | 338.7 MB | 300.2 MB | 250.0 MB | 231.6 MB |", md)
+            self.assertIn("| 30.9 MB | 201.6 MB | 201.6 MB | ? | ? |", md)   # older run, 2 s only
+            self.assertIn("req/s, settle at 30 s 231.6 MB", md)
 
     def test_engine_left_out_with_engines_says_not_selected(self):
         with tempfile.TemporaryDirectory() as d:
