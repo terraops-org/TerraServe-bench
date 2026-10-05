@@ -314,7 +314,13 @@ what each one took:
 
 - MapServer: no limit; its FastCGI pool has one worker per client (`CONC`, or `MS_MAX_PROCS`) in both server benchmarks,
   and each worker is recycled after 10000 requests (`MS_MAX_REQUESTS`; the image default is 1000)
-  and keeps at most 16 MB of GDAL block cache (`GDAL_CACHEMAX`)
+  and keeps a bounded GDAL block cache (`GDAL_CACHEMAX`, MB per worker). In the throughput
+  benchmark the workers share one budget of 256 MB, the size of TerraServe's tile cache in its
+  LRU row: each gets 256 MB divided by the number of workers (16 MB with 16 workers, 8 MB with
+  32), and the run prints the line. TerraServe's cache is one structure shared by all its
+  threads; GDAL's is per process, so a tile one worker decoded does not help the others. Until
+  2026-10-05 every worker had a fixed 16 MB, whatever the host; the vector benchmark still does
+  (it reads a GeoPackage, where this cache plays no part)
 - GeoServer: `-Xms256m -Xmx4g -XX:G1PeriodicGCInterval=5000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30`
   in every benchmark: after 5 s without a collection G1 runs a concurrent cycle and gives free heap
   back to the OS; the report prints the JVM options that ran

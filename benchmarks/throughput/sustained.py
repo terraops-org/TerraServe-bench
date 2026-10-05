@@ -100,10 +100,15 @@ MS_MAX_PROCS = os.environ.get("MS_MAX_PROCS") or str(CONC)  # one mapserv worker
 # spawn limit (FcgidSpawnScoreUpLimit) then stops replacing them and the pool shrinks under load,
 # so the benchmark would measure the respawn rate. Some recycling stays, for the leaks it guards.
 MS_MAX_REQUESTS = os.environ.get("MS_MAX_REQUESTS", "10000")
-# GDAL's block cache per mapserv worker, as in the vector benchmark. At the image default the
-# workers keep the whole decoded test area in memory and stop decompressing the COG, which a
-# server with many layers cannot do.
-GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
+# One cache budget for both engines that have a decoded-tile cache: TerraServe's LRU row gets it
+# as one cache shared by all its threads, MapServer as GDAL's block cache, which is per mapserv
+# worker, so each worker gets the budget divided by the number of workers. Until 2026-10-05
+# every worker had a fixed 16 MB: 256 MB in total with 16 workers, 512 MB with 32, so the total
+# depended on the host. At the image default the workers keep the whole decoded test area in
+# memory and stop decompressing the COG, which a server with many layers cannot do.
+# GDAL_CACHEMAX=<MB per worker> overrides the division.
+CACHE_MB = 256
+GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX") or str(max(1, CACHE_MB // int(MS_MAX_PROCS)))
 # Discarded seconds of load before the measured DURATION, for EVERY engine, so a JVM's cold JIT and a
 # FastCGI pool still growing are not what "sustained" measures (cold starts are the render
 # benchmark's subject).
@@ -375,6 +380,8 @@ ts_ver = subprocess.run(["docker", "run", "--rm", "--entrypoint", "terraserve", 
 ms_ver = " ".join(subprocess.run(["docker", "run", "--rm", "--entrypoint", "map2img", "ts-bench:latest", "-v"],
                                  capture_output=True, text=True).stdout.split()[:3])
 print(f"TerraServe: {ts_ver} ({ts_label})\nMapServer:  {ms_ver} ({MS_IMAGE})")
+print(f"Cache:      TerraServe-LRU {CACHE_MB} MB shared; MapServer {GDAL_CACHEMAX} MB x {MS_MAX_PROCS} workers "
+      f"= {int(GDAL_CACHEMAX) * int(MS_MAX_PROCS)} MB")
 
 if "geoserver" in ENGINES or "gs-libdeflate" in ENGINES:
     print(f"GeoServer:  {GS_IMAGE} ({GS_JAVA_OPTS}, GWC off)")
@@ -389,7 +396,7 @@ cids = {}
 if "ts-lru" in ENGINES:
     cids["ts-lru"] = docker_run(mounts + ["-p", "18080:8080", "--entrypoint", "terraserve", "ts-bench",
                                           "serve", "--cog", "/data/cog.tif", "--style", "/work/rgb.json",
-                                          "--host", "0.0.0.0", "--port", "8080", "--cache-lru", "256",
+                                          "--host", "0.0.0.0", "--port", "8080", "--cache-lru", str(CACHE_MB),
                                           "--wms-cache", "0"])
 if "ts-nocache" in ENGINES:
     cids["ts-nocache"] = docker_run(mounts + ["-p", "18081:8080", "--entrypoint", "terraserve", "ts-bench",
@@ -488,7 +495,7 @@ for r in results:
     engines.append(e)
 json.dump({"benchmark": "throughput",
            "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "ms_max_procs": int(MS_MAX_PROCS), "ms_max_requests": int(MS_MAX_REQUESTS), "gdal_cachemax_mb": int(GDAL_CACHEMAX), "size": 256, "distinct_bboxes": len(BB), "unique_requests": True,
+           "params": {"n": N, "duration_s": DURATION, "warmup": WARMUP, "conc": CONC, "ms_max_procs": int(MS_MAX_PROCS), "ms_max_requests": int(MS_MAX_REQUESTS), "gdal_cachemax_mb": int(GDAL_CACHEMAX), "gdal_cache_total_mb": int(GDAL_CACHEMAX) * int(MS_MAX_PROCS), "ts_lru_mb": CACHE_MB, "size": 256, "distinct_bboxes": len(BB), "unique_requests": True,
                       "crs": "EPSG:3763", "cog": os.path.basename(COG), "gs_xmx": GS_XMX},
            "engines": engines, "failed": failed, "skipped": skipped, "plot": "sustained.png"},
           open(f"{RESULTS_DIR}/throughput.json", "w"), indent=2)
