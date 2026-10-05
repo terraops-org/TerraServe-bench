@@ -2,7 +2,16 @@
 concepts: [geoserver, render-benchmark, memory-measurement, correctness-canary]
 status: active
 confidence: measured
-updated: 2026-09-06
+updated: 2026-10-03
+corrections:
+  - section: "The baseline is not a tuning artifact."
+    reason: "the -Xms experiment edited GEOSERVER_JAVA_OPTS, which the osgeo image does not read, so both runs had the same heap settings and it tested nothing. Whether -Xms moves the baseline is untested."
+  - section: "Comparison Results"
+    reason: "the GeoServer rows of both tables are labelled -Xms1g -Xmx4g. That was what the compose file asked for; the JVM ran on the image default, -Xms256m -Xmx1g. The measured numbers stand, the label does not."
+  - section: "TerraServe uses about 5.9x MapServer's memory per render here"
+    reason: "the 254 MB is what the render costs on a host with transparent huge pages set to always. With THP off for the process the same render costs 54 MB against MapServer's 45. The floor is not the COG open path. See the 2026-10-03 section."
+  - section: "Could not find layer benchmarks:cascais_rgb_cog"
+    reason: "the catalog was lost because the data volume was mounted at a path the image does not use, not because the COG was unreachable at start. The mount is fixed since PR 1."
 ---
 
 # GeoServer Benchmarking
@@ -157,6 +166,12 @@ starts, it can drop the store and persist that. Re-running the setup brings it b
 which is why `run.sh` runs `geoserver-setup.py` on every single invocation instead of
 only the first. Do not "optimise" that call away.
 
+**Corrected 2026-10-03.** The cause given above was a guess, and it was wrong. The compose
+file mounted the named volume at `/opt/geoserver/data_dir`, while the image keeps its data in
+`/opt/geoserver_data/`, so the catalog lived inside the container and went with it. The mount
+is right since [PR #1](https://github.com/terraops-org/TerraServe-bench/pull/1). The setup
+still runs on every invocation, which costs little.
+
 ```bash
 python3 geoserver-setup.py --cog-cascais ./data/cascais.cog.deflate.tif
 ```
@@ -295,10 +310,26 @@ baseline only to 808 MB in one run and 765 MB in another (872 MB with `-Xms1g` i
 where the JVM happens to sit. It is the real working set: loaded classes, metaspace,
 code cache, native buffers and grown heap, not the flag.
 
+**Corrected 2026-10-03: the paragraph above does not hold.** Until
+[PR #1](https://github.com/terraops-org/TerraServe-bench/pull/1) the compose file set
+`GEOSERVER_JAVA_OPTS`, which the osgeo image does not read (it reads `EXTRA_JAVA_OPTS`). That
+is how the file was first committed on 2026-09-06; for the 2026-09-04 run, two days before
+the first commit, it is inferred from the label the script printed, which it reads from that
+same variable. The
+`-Xms` change never reached the JVM, so the three readings (872, 808 and 765 MB) were taken
+with the same heap settings, the image default `-Xms256m -Xmx1g`. They show how far a warm
+JVM's baseline moves between runs with nothing changed, and nothing about `-Xms`. For the same
+reason the `-Xms1g -Xmx4g` label on the GeoServer rows of both tables here (2026-09-04 above,
+2026-09-06 below) is what the compose file asked for, not what ran. The measured numbers
+stand.
+
 **TerraServe uses about 5.9x MapServer's memory per render here** (254.2 against 43.4 MB), and that is the number
 worth chasing rather than explaining away. It is a fork-per-render CLI path rather
 than the sustained serving path the design targets, but it is measured the same way
 as the other two and it is not small.
+
+**Corrected 2026-10-03:** most of this number is transparent huge pages, a setting of the host
+it was measured on. The section of that date below has the measurement.
 
 The interesting part is that it barely depends on the request. Same COG, same bbox,
 only the output size changing (2026-09-04, private host build, isolated single renders):
@@ -320,6 +351,85 @@ Caveat on those small-size rows: at 800x536 the measurement is tight (248.2 to
 sampling ten times faster did not narrow it. So treat the small-output rows as
 indicative, not precise. The floor is real; its exact height at small sizes is not
 pinned down.
+
+### 2026-10-03: the memory floor is transparent huge pages
+
+The floor described above is real on the machine it was measured on, and it is mostly a
+kernel setting. It was found when the same pinned image ran on a second machine and the same
+render cost a fifth of the memory.
+
+The two machines differ in `/sys/kernel/mm/transparent_hugepage/enabled`: `always` on the
+developer laptop that every earlier number in this file comes from (Debian 13, kernel 7.1),
+`madvise` on the second one (Ubuntu 24.04, kernel 6.8). With `always` the kernel backs fresh
+anonymous memory with 2 MB pages on first touch, and `anon` counts all of it.
+
+Checked on the laptop itself, same container, same image (TerraServe 0.3.7, MapServer 8.6.6),
+800x536. Memory is `lib/cgroup_mem.py` with 5 isolated renders, time is `lib/bench.py`.
+"THP off" is the same command started through a wrapper that calls
+`prctl(PR_SET_THP_DISABLE)`, so nothing on the host changes and no root is needed.
+
+| render on the laptop | anon per render (median of 5) | median time (6 runs) |
+|---|---|---|
+| TerraServe 0.3.7, host default (THP `always`) | 251.8 MB, 253.2 MB on a second pass | 30.0 ms, then 29.9 ms |
+| TerraServe 0.3.7, THP off for the process | 54.3 MB | 35.5 ms, then 34.4 ms |
+| MapServer 8.6.6, host default (THP `always`) | 49.5 MB | 119.0 ms |
+| MapServer 8.6.6, THP off for the process | 44.9 MB | 114.6 ms |
+
+The cgroup says it directly. At the peak of one TerraServe render `memory.stat` showed
+`anon_thp` at 242 MB out of 256 MB of `anon` (244 of 259 on a repeat), and 6 of 58 MB with
+THP off. One sample taken 15 ms into a render counted 53 threads on this 16-thread machine.
+The likely mechanism, not proven: every thread brings a stack and an allocator arena, each a
+fresh mapping, and under `always` the first touch of each takes a whole 2 MB page. That would
+explain why the floor follows neither the output size nor the file.
+
+The same test on the `madvise` machine changes nothing, as expected: TerraServe 50.2 MB by
+default and 49.6 MB with THP off (35.9 against 36.4 ms), MapServer 41.7 MB both ways. One
+sample there counted 69 threads for one render, on 32 hardware threads.
+
+What this changes:
+
+- "5.9x MapServer's memory" holds only on a host with THP `always`. With it off it is about
+  1.2x (54.3 against 44.9 MB), and the `madvise` machine agrees: see the next section.
+- Huge pages are not free to give up. TerraServe's render is 15 to 18% slower without them
+  (35 against 30 ms). MapServer shows no clear change either way.
+- It is still an engine matter. Both settings are in common use, and on an `always` host
+  TerraServe holds 4.6 times what it needs while MapServer does not.
+- The laptop runs THP `always` today. Nobody recorded the setting before, so the earlier
+  memory numbers in this file, GeoServer's included, were most likely taken under it and none
+  of them says so. A memory number needs the THP setting next
+  to it; the harness does not record it yet.
+
+### Two runs on a second machine, 2026-10-03 (new pins, THP `madvise`)
+
+Two full default runs of the suite back to back, on a machine that is not the laptop: a
+desktop-class server (Ryzen 9 7950X, 16 cores and 32 threads, 124 GB, Ubuntu 24.04, kernel
+6.8.0, Docker 29.8.1, transparent huge pages `madvise`, `amd-pstate-epp` with the performance
+preference). Its other workloads were stopped for the runs. A file transfer of another project
+was using about 15% of one core when run 1 started and ended on its own during run 2. Engines as pinned
+that day: MapServer 8.6.6, TerraServe 0.3.7, GeoServer 3.0.1. Code: `main` at `363a443` plus
+that day's changes (the pins, `--wms-cache 0` in the throughput driver); the exact diff is
+saved next to the results. `results/20261003-143704-moura001-run1/` and
+`results/20261003-150533-moura001-run2/`, not in the repo. Every cell is run 1 / run 2.
+
+| Engine | shape | best | median | max | anon per render (median of 5) |
+|---|---|---|---|---|---|
+| MapServer 8.6.6 | `map2img`, new process per render | 101.5 / 99.3 ms | 103.5 / 100.7 ms | 104.0 / 102.3 ms | 41.7 / 41.6 MB |
+| TerraServe 0.3.7 | `terraserve render`, new process per render | 37.0 / 35.3 ms | 37.2 / 36.0 ms | 38.2 / 37.2 ms | 50.1 / 50.9 MB |
+| GeoServer 3.0.1 | WMS GetMap over HTTP, warm JVM | 60.7 / 58.5 ms | 68.2 / 64.1 ms | 76.1 / 74.3 ms | 0.0 / 12.6 MB (holds 712.3 / 705.4 MB) |
+
+GeoServer's JVM options, read from the variable the image really uses: `-Xms256m -Xmx4g
+-XX:G1PeriodicGCInterval=5000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30`.
+
+- On this host a TerraServe render costs 1.2x MapServer's memory (50 against 42 MB), not
+  5.9x. This is the `madvise` machine the section above refers to.
+- The medians of the two runs agree within 4% for the CLI engines and within 7% for
+  GeoServer. The CLI engines' memory per render repeats within 1 MB.
+- The pixel canary holds for these pins (images of run 1): TerraServe 0.3.7 against GeoServer
+  3.0.1, 0.00 mean absolute difference over 319,242 opaque pixels, no pixel differing by more
+  than 8, and both leave exactly 109,558 pixels transparent. MapServer 8.6.6 differs from
+  both by the same 17.57 mean as 8.6.5 did.
+- The shapes still differ: the two CLI engines pay process start on every render, GeoServer
+  does not. For all three as servers read `../throughput/` and `../vector/`.
 
 ### Re-run 2026-09-06 with the pinned release (TerraServe 0.2.0)
 
