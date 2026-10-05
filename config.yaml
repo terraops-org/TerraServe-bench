@@ -28,8 +28,12 @@ fixtures:
 # Engine versions & image names
 engines:
   mapserver:
-    image: "camptocamp/mapserver:8.6-gdal3.12"
-    description: "MapServer 8.6.5 (public image, GDAL 3.12, PROJ 9.7)"
+    # `8.6-gdal3.12` is a floating tag: it gave 8.6.5 in July 2026 and 8.6.6 by September, so
+    # two people ran different MapServers from the same line. Pinned by tag AND digest since
+    # 2026-10-03. To bump: `docker buildx imagetools inspect camptocamp/mapserver:8.6-gdal3.12`
+    # prints the current digest; update the two lines below and re-run the benchmarks.
+    image: "camptocamp/mapserver:8.6-gdal3.12@sha256:3d0374d9272735ba6c01ab284003d9da34f49b0b284730ac83761a7c288a85a1"
+    description: "MapServer 8.6.6 (public image, GDAL 3.12.1, PROJ 9.7.1, Ubuntu 24.04)"
 
   geoserver:
     image: "docker.osgeo.org/geoserver:3.0.1"
@@ -43,10 +47,10 @@ engines:
     # the three lines below, re-run the benchmarks, record the version in the results docs.
     # (sustained.py and cos2023_vector_bench.py carry a digest-less fallback string for runs
     # without this file; they may lag, this line is the one that counts.)
-    image: "ghcr.io/terraops-org/terraserve:0.3.6@sha256:9dc9c5f1716b00907a703a0478cb6b3df7e5f41b779e982c86867fb4a4de6780"
-    version: "0.3.6"
-    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.6"
-    description: "TerraServe 0.3.6 (Debian trixie image). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
+    image: "ghcr.io/terraops-org/terraserve:0.3.7@sha256:d7664a188942ac0da6c8a1d46802b6ffbccdde6f70241577467b736528c665d8"
+    version: "0.3.7"
+    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.7"
+    description: "TerraServe 0.3.7 (Debian trixie image). Render and throughput copy its binary into the MapServer image; vector runs the image itself."
 
 # Benchmark settings are NOT read from this file. Each run.sh takes environment variables
 # (render: W H MEM_RUNS; throughput: DURATION WARMUP CONC; vector: DURATION WARMUP CONC ENGINES), see the README.

@@ -92,8 +92,11 @@ def version_label(family, version=None, image=None):
         v = [t for t in v if t.lower() != name.lower()]
         if v:
             return f"{name} {v[0]}"
-    if image and ":" in image:
-        return f"{name} {image.rsplit(':', 1)[1].split('@')[0]}"
+    # Drop a digest BEFORE taking the tag: 'repo:tag@sha256:<hex>' split on its last colon is
+    # the hex, and the label read 'MapServer 3d0374d9...'.
+    ref = (image or "").split("@")[0]
+    if ":" in ref:
+        return f"{name} {ref.rsplit(':', 1)[1]}"
     return name
 
 

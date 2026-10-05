@@ -53,7 +53,7 @@ def pinned_image(engine, default):
 
 
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
-TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.3.6")
+TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.3.7")
 TS_BIN = os.environ.get("TS_BIN") or None  # a local build instead of the pinned release
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.1")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
@@ -382,14 +382,20 @@ if "geoserver" in ENGINES or "gs-libdeflate" in ENGINES:
 mounts = ["-v", f"{COG}:/data/cog.tif:ro", "-v", f"{BENCH}:/work"]
 MS_MAPFILE = "/etc/mapserver/cascais_wms.map"
 cids = {}
+# --wms-cache 0 on BOTH TerraServe rows: the WMS response cache defaults to 256 MiB, and until
+# 2026-10-03 neither row turned it off, so "no cache" was never cache-free (the vector benchmark
+# always passed it). No request repeats now, so the cache could not hit, but it still filled and
+# was counted in TerraServe's memory. With it off the LRU row measures the LRU and nothing else.
 if "ts-lru" in ENGINES:
     cids["ts-lru"] = docker_run(mounts + ["-p", "18080:8080", "--entrypoint", "terraserve", "ts-bench",
                                           "serve", "--cog", "/data/cog.tif", "--style", "/work/rgb.json",
-                                          "--host", "0.0.0.0", "--port", "8080", "--cache-lru", "256"])
+                                          "--host", "0.0.0.0", "--port", "8080", "--cache-lru", "256",
+                                          "--wms-cache", "0"])
 if "ts-nocache" in ENGINES:
     cids["ts-nocache"] = docker_run(mounts + ["-p", "18081:8080", "--entrypoint", "terraserve", "ts-bench",
                                               "serve", "--cog", "/data/cog.tif", "--style", "/work/rgb.json",
-                                              "--host", "0.0.0.0", "--port", "8080", "--no-cache-lru"])
+                                              "--host", "0.0.0.0", "--port", "8080", "--no-cache-lru",
+                                              "--wms-cache", "0"])
 # MapServer runs its OWN native stack (Apache + mod_fcgid), not a python wrapper. The
 # public 8.6 image ships no mapscript, and this is the realistic deployment anyway.
 # Two things that cost time to discover: the image EXPOSEs 8080 but Apache actually

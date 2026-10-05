@@ -14,7 +14,7 @@ All fixture files are downloaded from the project VPS ([terraserve.io/fixtures](
 - Python 3.9+ with `requests` (GeoServer REST scripts) and Pillow (throughput plot): `pip install -r requirements.txt`
 - Bash 4.4+, `curl`
 - Benchmarks pull the pinned public release image named in `config.yaml` (currently
-  `ghcr.io/terraops-org/terraserve:0.3.6`), no need for rustc
+  `ghcr.io/terraops-org/terraserve:0.3.7`), no need for rustc
 
 ### TerraServe version under test
 
@@ -23,9 +23,13 @@ All fixture files are downloaded from the project VPS ([terraserve.io/fixtures](
 ```yaml
 engines:
   terraserve:
-    image: "ghcr.io/terraops-org/terraserve:0.3.6@sha256:9dc9c5f1..."
-    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.6"
+    image: "ghcr.io/terraops-org/terraserve:0.3.7@sha256:d7664a18..."
+    source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.7"
 ```
+
+MapServer is pinned the same way (`camptocamp/mapserver:8.6-gdal3.12@sha256:3d0374d9...`,
+which is 8.6.6): `8.6-gdal3.12` is a floating tag and gave two machines two different
+MapServers before it was pinned.
 
 
 The TerraServe binary is copied out of that image into the MapServer image, so both CLI engines share
@@ -222,11 +226,11 @@ fixtures:
 
 engines:
   mapserver:
-    image: "camptocamp/mapserver:8.6-gdal3.12"
+    image: "camptocamp/mapserver:8.6-gdal3.12@sha256:..."
   geoserver:
     image: "docker.osgeo.org/geoserver:3.0.1"
   terraserve:
-    image: "ghcr.io/terraops-org/terraserve:0.3.6@sha256:..."
+    image: "ghcr.io/terraops-org/terraserve:0.3.7@sha256:..."
 
 vps:
   host: "terraserve.io"
@@ -287,7 +291,7 @@ The benchmark is designed for portability:
 
 1. MapServer and TerraServe run in the same Docker image: same OS, PROJ and libraries
 2. Self-contained fixture download (no repo cloning)
-3. Every engine version pinned in `config.yaml`, TerraServe by tag and digest
+3. Every engine version pinned in `config.yaml`, TerraServe and MapServer by tag and digest
 
 To test on your own hardware:
 
@@ -405,7 +409,7 @@ The render and throughput benchmarks build `ts-bench:latest` from
 ```bash
 docker build --no-cache \
   --build-arg MS_IMAGE=camptocamp/mapserver:8.6-gdal3.12 \
-  --build-arg TS_IMAGE=ghcr.io/terraops-org/terraserve:0.3.6 \
+  --build-arg TS_IMAGE=ghcr.io/terraops-org/terraserve:0.3.7 \
   -f dockerfiles/Dockerfile.terraserve -t ts-bench:latest dockerfiles
 ```
 

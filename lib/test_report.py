@@ -248,6 +248,14 @@ class Markdown(unittest.TestCase):
             md = report.render_markdown(report.load(d))
             self.assertIn("LOCAL BUILD", md)
 
+    def test_label_of_a_digest_pinned_image_is_its_tag_not_the_digest(self):
+        """When an engine's version is unknown the label falls back to the image tag. With the
+        pin written as repo:tag@sha256:<hex> that fallback used to print the hex."""
+        pin = "camptocamp/mapserver:8.6-gdal3.12@sha256:3d0374d9272735ba6c01ab284003d9da34f49b0b284730ac83761a7c288a85a1"
+        self.assertEqual(report.version_label("mapserver", None, pin), "MapServer 8.6-gdal3.12")
+        self.assertEqual(report.version_label("geoserver", None, "docker.osgeo.org/geoserver:3.0.1"), "GeoServer 3.0.1")
+        self.assertEqual(report.version_label("mapserver", "MapServer version 8.6.6", pin), "MapServer 8.6.6")
+
 
 class Compare(unittest.TestCase):
     def test_compare_shows_both_values_and_percent(self):
