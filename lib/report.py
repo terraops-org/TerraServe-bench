@@ -172,6 +172,8 @@ def engine_versions(run):
         for c in cands:
             if c:
                 out[fam] = version_label(fam, c.get("version"), c.get("image"))
+                if any(x and x.get("local_build") for x in cands):
+                    out[fam] += " (LOCAL BUILD)"
                 break
     return out
 
@@ -239,8 +241,6 @@ def _summary_cells(run, fam):
             cell = f"{fmt(m.get('median_ms'), ' ms')}, holds {fmt(m.get('base_mb'), ' MB')}, warm HTTP"
         else:
             cell = f"{fmt(m.get('median_ms'), ' ms')}, {fmt(mem_per_render(m), ' MB')} per render, cold CLI"
-        if e.get("local_build"):
-            cell += " (LOCAL BUILD)"
         render_cell = cell
     elif fam in ((run.get("render") or {}).get("unreachable") or []):
         render_cell = "not reachable"

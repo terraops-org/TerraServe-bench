@@ -56,7 +56,11 @@ if ! docker image inspect "$TS_IMAGE" >/dev/null 2>&1; then
 fi
 
 echo "GeoPackage: $(basename "$GPKG") ($(du -hL "$GPKG" | cut -f1))"
-echo "TerraServe: $(docker run --rm "$TS_IMAGE" --version) from ${TS_IMAGE}"
+if [[ "$TS_IMAGE" != "$(cfg_engine_image terraserve)" ]]; then
+    echo "TerraServe: LOCAL BUILD $(docker run --rm "$TS_IMAGE" --version) from ${TS_IMAGE}, NOT the pinned release"
+else
+    echo "TerraServe: $(docker run --rm "$TS_IMAGE" --version) from ${TS_IMAGE}"
+fi
 echo "MapServer:  ${MS_IMAGE}"
 echo "GeoServer:  ${GS_IMAGE}"
 echo "Engines:    $ENGINES"

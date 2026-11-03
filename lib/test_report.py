@@ -260,6 +260,22 @@ class Markdown(unittest.TestCase):
             gs = [l for l in md.split("## Render")[0].splitlines() if l.startswith("| GeoServer")][0]
             self.assertEqual([c.strip() for c in gs.strip("|").split("|")][2], "not selected")
 
+    def test_local_build_in_the_vector_benchmark_is_called_out_in_its_summary(self):
+        """A TS_IMAGE other than the pin is a developer build. The vector summary and the
+        engine line must say so, or a reader takes its numbers for a release's."""
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d, render=False, throughput=False)
+            vec = json.load(open(os.path.join(d, "vector.json")))
+            for e in vec["engines"]:
+                if e["family"] == "terraserve":
+                    e["local_build"] = True
+            write(d, "vector.json", vec)
+            md = report.render_markdown(report.load(d))
+            ts = [l for l in vector_summary(md).splitlines() if l.startswith("| TerraServe")][0]
+            self.assertIn("(LOCAL BUILD) |", ts)
+            engines = [l for l in md.splitlines() if l.startswith("Engines:")][0]
+            self.assertIn("TerraServe 0.2.0 (LOCAL BUILD)", engines)
+
     def test_local_build_is_called_out(self):
         with tempfile.TemporaryDirectory() as d:
             make_run(d)

@@ -79,6 +79,8 @@ def pinned_image(engine, default):
 
 # The pinned public release image, run as-is (fonts baked in, --wms-cache present).
 TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.3.7")
+# TS_IMAGE set to anything but the pinned release is a developer build: the report must say so.
+TS_LOCAL = TS_IMAGE != pinned_image("terraserve", TS_IMAGE)
 MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.13")
 GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.2")
 GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
@@ -392,6 +394,8 @@ def write_results(results, failed=(), skipped=()):
                            **{f"settle_{s}s_mb": round(mb(v)) for s, v in zip(SETTLE_S, r["settle"])}}}
         if e.key in VARIANT:
             rec["variant"] = VARIANT[e.key]
+        if fam == "terraserve" and TS_LOCAL:
+            rec["local_build"] = True
         engines.append(rec)
     json.dump({"benchmark": "vector",
                "date": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

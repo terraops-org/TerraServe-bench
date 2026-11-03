@@ -488,7 +488,7 @@ for r in results:
                      **{f"settle_{s}s_mb": round(mb(v), 1) for s, v in zip(SETTLE_S, r["settle"])}}}
     if variant:
         e["variant"] = variant
-    if TS_BIN and fam == "terraserve":
+    if fam == "terraserve" and (TS_BIN or TS_IMAGE != pinned_image("terraserve", TS_IMAGE)):
         e["local_build"] = True
     if fam == "geoserver":
         e["jvm_opts"] = GS_JAVA_OPTS
