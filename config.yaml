@@ -28,16 +28,17 @@ fixtures:
 # Engine versions & image names
 engines:
   mapserver:
-    # `8.6-gdal3.12` is a floating tag: it gave 8.6.5 in July 2026 and 8.6.6 by September, so
-    # two people ran different MapServers from the same line. Pinned by tag AND digest since
-    # 2026-10-03. To bump: `docker buildx imagetools inspect camptocamp/mapserver:8.6-gdal3.12`
+    # Tags like `8.6-gdal3.13` float: `8.6-gdal3.12` gave 8.6.5 in July 2026 and 8.6.6 by
+    # September, so two people ran different MapServers from the same line. Pinned by tag AND
+    # digest since 2026-10-03; GDAL 3.12 -> 3.13 on 2026-11-02. To bump: `docker buildx
+    # imagetools inspect camptocamp/mapserver:8.6-gdal3.13`
     # prints the current digest; update the two lines below and re-run the benchmarks.
-    image: "camptocamp/mapserver:8.6-gdal3.12@sha256:3d0374d9272735ba6c01ab284003d9da34f49b0b284730ac83761a7c288a85a1"
-    description: "MapServer 8.6.6 (public image, GDAL 3.12.1, PROJ 9.7.1, Ubuntu 24.04)"
+    image: "camptocamp/mapserver:8.6-gdal3.13@sha256:9e3ac61a9a9146bcac80ac800c45dd6d1ab4a036a6f89297e238f8344260a338"
+    description: "MapServer 8.6.6 (public image, GDAL 3.13.3 with its own PROJ 9.8.1, system PROJ 9.7.1, Ubuntu 26.04)"
 
   geoserver:
-    image: "docker.osgeo.org/geoserver:3.0.1"
-    description: "GeoServer 3.0.1 (Java 21)"
+    image: "docker.osgeo.org/geoserver:3.0.2@sha256:5a372d4988116e8f62c71ae5ff6eb8d433967697670fb1dec15379bf476721fe"
+    description: "GeoServer 3.0.2 (Java 21)"
 
   terraserve:
     # The image the public repo's CI publishes on a v* tag, pinned by tag AND digest so a

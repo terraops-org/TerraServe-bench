@@ -27,9 +27,9 @@ engines:
     source: "https://github.com/terraops-org/TerraServe/releases/tag/v0.3.7"
 ```
 
-MapServer is pinned the same way (`camptocamp/mapserver:8.6-gdal3.12@sha256:3d0374d9...`,
-which is 8.6.6): `8.6-gdal3.12` is a floating tag and gave two machines two different
-MapServers before it was pinned.
+MapServer is pinned the same way (`camptocamp/mapserver:8.6-gdal3.13@sha256:9e3ac61a...`,
+which is 8.6.6 with GDAL 3.13.3): tags like `8.6-gdal3.13` float, and one
+once gave two machines two different MapServers before it was pinned.
 
 
 The TerraServe binary is copied out of that image into the MapServer image, so both CLI engines share
@@ -131,7 +131,7 @@ and multi-encoding benchmarks stay in the engine repo; they are not part of this
 
 **Output:** best, median and max time, cgroup `anon` memory per render, the rendered PNGs
 
-**GeoServer Setup:** Layers are auto-created via REST API on first run. For details, see `benchmarks/render/GEOSERVER.md`
+**GeoServer Setup:** Layers are auto-created via REST API on first run. For a manual walkthrough, see `config/geoserver/README.md`
 
 
 ### Throughput (`benchmarks/throughput/`)
@@ -204,7 +204,8 @@ CONC=128 ./run.sh
 │   └── report.py        results/<run>/ -> REPORT.md, and --compare between runs
 ├── dockerfiles/         Dockerfile.terraserve: MapServer image + the pinned TerraServe binary
 ├── data/                Downloaded fixtures (not in git)
-├── results/             One directory per run: REPORT.md, JSON, PNGs (not in git)
+├── results/             One directory per run: REPORT.md, JSON, PNGs. Not in git: the repo
+│                        publishes the method, never numbers. Run it to get your own.
 ├── config.yaml          Fixture files and checksums, engine image pins, VPS host
 ├── setup.sh             Download fixtures from VPS
 ├── run_all.sh           Orchestrate all benchmarks
@@ -226,9 +227,9 @@ fixtures:
 
 engines:
   mapserver:
-    image: "camptocamp/mapserver:8.6-gdal3.12@sha256:..."
+    image: "camptocamp/mapserver:8.6-gdal3.13@sha256:..."
   geoserver:
-    image: "docker.osgeo.org/geoserver:3.0.1"
+    image: "docker.osgeo.org/geoserver:3.0.2@sha256:5a372d49..."
   terraserve:
     image: "ghcr.io/terraops-org/terraserve:0.3.7@sha256:..."
 
@@ -414,7 +415,7 @@ The render and throughput benchmarks build `ts-bench:latest` from
 
 ```bash
 docker build --no-cache \
-  --build-arg MS_IMAGE=camptocamp/mapserver:8.6-gdal3.12 \
+  --build-arg MS_IMAGE=camptocamp/mapserver:8.6-gdal3.13 \
   --build-arg TS_IMAGE=ghcr.io/terraops-org/terraserve:0.3.7 \
   -f dockerfiles/Dockerfile.terraserve -t ts-bench:latest dockerfiles
 ```
@@ -424,7 +425,7 @@ docker build --no-cache \
 Render the mapfile once with MapServer's own tool; it prints the parse error if there is one:
 ```bash
 docker run --rm -v "$PWD/config/mapfiles:/maps:ro" -v "$PWD/data/cascais.cog.deflate.tif:/data/cog.tif:ro" \
-  --entrypoint map2img camptocamp/mapserver:8.6-gdal3.12 -m /maps/cascais.map -o /tmp/out.png
+  --entrypoint map2img camptocamp/mapserver:8.6-gdal3.13 -m /maps/cascais.map -o /tmp/out.png
 ```
 
 ### Memory spikes

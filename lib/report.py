@@ -286,24 +286,35 @@ def _header(run):
     return out
 
 
-def render_markdown(run):
-    out = _header(run)
-    rp = (run.get("render") or {}).get("params", {})
-    size = f"{rp.get('width', 800)}x{rp.get('height', 536)}"
-    out += ["## Summary", "",
-            f"| engine | render, one {size} image | throughput, 256x256 panning | vector COS2023, 256x256 |",
-            "|---|---|---|---|"]
-    vs = engine_versions(run)
+def _summary_rows(run, cols):
+    """One row per engine family, with the summary cells picked by `cols` (indexes into
+    _summary_cells: 0 render, 1 throughput, 2 vector)."""
+    vs, rows = engine_versions(run), []
     for fam in FAMILIES:
         failed_somewhere = any(_key_family(k) == fam for b in ("throughput", "vector") for k in _failed_keys(run, b))
         if fam not in vs and not failed_somewhere:
             continue
-        r, t, v = _summary_cells(run, fam)
-        out.append(f"| {vs.get(fam, FAMILY_NAME[fam])} | {r} | {t} | {v} |")
-    out.append("")
+        cells = _summary_cells(run, fam)
+        rows.append(f"| {vs.get(fam, FAMILY_NAME[fam])} | " + " | ".join(cells[i] for i in cols) + " |")
+    return rows
+
+
+def render_markdown(run):
+    out = _header(run)
+    rp = (run.get("render") or {}).get("params", {})
+    size = f"{rp.get('width', 800)}x{rp.get('height', 536)}"
+
+    # Raster and vector are different workloads on different data, so each gets its own
+    # summary and its own detail tables; a row never carries a cell for the other kind.
+    out += ["## Raster (Cascais COG)", ""]
+    if run.get("render") is None and run.get("throughput") is None:
+        out += ["not run", ""]
+    else:
+        out += [f"| engine | render, one {size} image | throughput, 256x256 panning |", "|---|---|---|"]
+        out += _summary_rows(run, (0, 1)) + [""]
 
     r = run.get("render")
-    out += ["## Render (single request)", ""]
+    out += ["### Render (single request)", ""]
     if r:
         p = r.get("params", {})
         out.append(f"{p.get('width', '?')}x{p.get('height', '?')}, {p.get('timed_runs', '?')} timed runs after a "
@@ -332,7 +343,7 @@ def render_markdown(run):
     out.append("")
 
     t = run.get("throughput")
-    out += ["## Throughput (sustained GetMap under panning)", ""]
+    out += ["### Throughput (sustained GetMap under panning)", ""]
     if t:
         p = t.get("params", {})
         out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, {p.get('size', '?')}x{p.get('size', '?')}, "
@@ -356,6 +367,9 @@ def render_markdown(run):
     v = run.get("vector")
     out += ["## Vector (COS2023 land cover as WMS)", ""]
     if v:
+        out += ["| engine | 256x256 GetMap, no cache |", "|---|---|"]
+        out += _summary_rows(run, (2,)) + [""]
+        out += ["### Every row", ""]
         p = v.get("params", {})
         out.append(f"{load_text(p)}, {p.get('conc', '?')} concurrent, "
                    f"{p.get('size', '?')}x{p.get('size', '?')}, {bbox_text(p)}.")

@@ -79,8 +79,8 @@ def pinned_image(engine, default):
 
 # The pinned public release image, run as-is (fonts baked in, --wms-cache present).
 TS_IMAGE = os.environ.get("TS_IMAGE") or pinned_image("terraserve", "ghcr.io/terraops-org/terraserve:0.3.7")
-MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.12")
-GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.1")
+MS_IMAGE = os.environ.get("MS_IMAGE") or pinned_image("mapserver", "camptocamp/mapserver:8.6-gdal3.13")
+GS_IMAGE = os.environ.get("GS_IMAGE") or pinned_image("geoserver", "docker.osgeo.org/geoserver:3.0.2")
 GDAL_CACHEMAX = os.environ.get("GDAL_CACHEMAX", "16")
 GS_XMX = os.environ.get("GS_XMX", "4096m")
 GS_JAVA_OPTS = (f"-Xms256m -Xmx{GS_XMX} -XX:G1PeriodicGCInterval=5000 "   # see benchmarks/throughput/sustained.py

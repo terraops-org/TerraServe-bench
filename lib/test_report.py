@@ -86,6 +86,11 @@ class Load(unittest.TestCase):
             self.assertIsNotNone(run["render"])
 
 
+def vector_summary(md):
+    """The vector summary table: between the Vector heading and its detail table."""
+    return md.split("## Vector")[1].split("### Every row")[0]
+
+
 class Markdown(unittest.TestCase):
     def test_summary_has_one_row_per_engine_family_and_flags_the_shape(self):
         with tempfile.TemporaryDirectory() as d:
@@ -102,8 +107,8 @@ class Markdown(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             make_run(d)
             md = report.render_markdown(report.load(d))
-            summary = md.split("## Vector")[0]
-            self.assertNotIn("3772", summary)
+            self.assertNotIn("3772", md.split("## Vector")[0])
+            self.assertNotIn("3772", vector_summary(md))
             self.assertIn("3772", md)               # but present in the detailed vector table
             self.assertIn("cache-hit", md)
 
@@ -155,6 +160,23 @@ class Markdown(unittest.TestCase):
             self.assertIn("not reachable", row)
             self.assertNotIn("not run", row)
 
+    def test_raster_and_vector_have_separate_summaries(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d)
+            md = report.render_markdown(report.load(d))
+            raster = md.split("## Raster")[1].split("### Render")[0]
+            self.assertIn("| engine | render, one 800x536 image | throughput, 256x256 panning |", raster)
+            self.assertNotIn("vector", raster.lower())
+            self.assertIn("| engine | 256x256 GetMap, no cache |", vector_summary(md))
+            self.assertLess(md.index("## Raster"), md.index("### Throughput"))
+            self.assertLess(md.index("### Throughput"), md.index("## Vector"))
+
+    def test_vector_only_run_says_raster_not_run(self):
+        with tempfile.TemporaryDirectory() as d:
+            make_run(d, render=False, throughput=False)
+            md = report.render_markdown(report.load(d))
+            self.assertIn("## Raster (Cascais COG)\n\nnot run", md)
+
     def test_render_table_has_a_max_column(self):
         with tempfile.TemporaryDirectory() as d:
             make_run(d)
@@ -171,7 +193,7 @@ class Markdown(unittest.TestCase):
             vec["failed"] = ["ts-nocache", "ts-wmscache", "geoserver"]
             write(d, "vector.json", vec)
             md = report.render_markdown(report.load(d))
-            summary = md.split("## Render")[0]
+            summary = vector_summary(md)
             ts = [l for l in summary.splitlines() if l.startswith("| TerraServe")][0]
             gs = [l for l in summary.splitlines() if l.startswith("| GeoServer")][0]
             self.assertTrue(ts.rstrip().endswith("| FAILED |"), ts)
@@ -182,11 +204,10 @@ class Markdown(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             make_run(d)
             md = report.render_markdown(report.load(d))
-            summary = md.split("## Render")[0]
-            gs = [l for l in summary.splitlines() if l.startswith("| GeoServer")][0]
-            cells = [c.strip() for c in gs.strip("|").split("|")]
-            self.assertEqual(cells[2], "not in this benchmark")   # throughput has no GeoServer engine
-            self.assertEqual(cells[3], "not in this benchmark")   # vector: not in this fixture either
+            raster = [l for l in md.split("### Render")[0].splitlines() if l.startswith("| GeoServer")][0]
+            vector = [l for l in vector_summary(md).splitlines() if l.startswith("| GeoServer")][0]
+            self.assertEqual([c.strip() for c in raster.strip("|").split("|")][2], "not in this benchmark")  # throughput has no GeoServer engine
+            self.assertEqual([c.strip() for c in vector.strip("|").split("|")][1], "not in this benchmark")  # vector: not in this fixture either
 
     def test_throughput_states_its_warm_up(self):
         with tempfile.TemporaryDirectory() as d:
@@ -251,9 +272,9 @@ class Markdown(unittest.TestCase):
     def test_label_of_a_digest_pinned_image_is_its_tag_not_the_digest(self):
         """When an engine's version is unknown the label falls back to the image tag. With the
         pin written as repo:tag@sha256:<hex> that fallback used to print the hex."""
-        pin = "camptocamp/mapserver:8.6-gdal3.12@sha256:3d0374d9272735ba6c01ab284003d9da34f49b0b284730ac83761a7c288a85a1"
-        self.assertEqual(report.version_label("mapserver", None, pin), "MapServer 8.6-gdal3.12")
-        self.assertEqual(report.version_label("geoserver", None, "docker.osgeo.org/geoserver:3.0.1"), "GeoServer 3.0.1")
+        pin = "camptocamp/mapserver:8.6-gdal3.13@sha256:9e3ac61a9a9146bcac80ac800c45dd6d1ab4a036a6f89297e238f8344260a338"
+        self.assertEqual(report.version_label("mapserver", None, pin), "MapServer 8.6-gdal3.13")
+        self.assertEqual(report.version_label("geoserver", None, "docker.osgeo.org/geoserver:3.0.2@sha256:5a372d4988116e8f62c71ae5ff6eb8d433967697670fb1dec15379bf476721fe"), "GeoServer 3.0.2")
         self.assertEqual(report.version_label("mapserver", "MapServer version 8.6.6", pin), "MapServer 8.6.6")
 
 
